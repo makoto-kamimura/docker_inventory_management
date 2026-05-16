@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  app:
+    build: ./docker
+    container_name: laravel_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../app/backend:/var/www
+    depends_on:
+      - db
+    working_dir: /var/www
+    command: sh -c "./wait-for-db.sh"
+    # command: sh -c "php artisan migrate:fresh --seed && php artisan serve --host=0.0.0.0 --port=8000"
+
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: inventory
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: user
+      PMA_PASSWORD: password

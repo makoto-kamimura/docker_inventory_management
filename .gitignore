@@ -1,0 +1,134 @@
+# ============================================================
+# OS / Editor
+# ============================================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE / Editor settings
+.idea/
+.vscode/
+.fleet/
+.zed/
+.nova/
+.phpactor.json
+*.iml
+
+# AI assistant local state
+.claude/
+.cursor/
+
+# ============================================================
+# 環境変数 / シークレット
+# ============================================================
+.env
+.env.*
+!.env.example
+!.env.sample
+*.env.backup
+*.env.bk
+
+# 鍵 / 証明書
+*.pem
+*.key
+*.p12
+*.p8
+*.jks
+*.mobileprovision
+auth.json
+
+# ============================================================
+# ログ / 一時ファイル
+# ============================================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ============================================================
+# platform/ — Docker, MySQL データ
+# ============================================================
+# MySQL のデータディレクトリ全体を除外(実データ・innodb・鍵などを含む)
+platform/mysql/**
+!platform/mysql/.gitkeep
+
+# ============================================================
+# app/backend (Laravel)
+# ============================================================
+app/backend/vendor/
+app/backend/node_modules/
+app/backend/public/build/
+app/backend/public/hot/
+app/backend/public/storage
+app/backend/storage/*.key
+app/backend/storage/pail
+app/backend/storage/app/public/
+app/backend/storage/framework/cache/*
+app/backend/storage/framework/sessions/*
+app/backend/storage/framework/testing/*
+app/backend/storage/framework/views/*
+app/backend/storage/logs/*
+!app/backend/storage/framework/cache/.gitignore
+!app/backend/storage/framework/sessions/.gitignore
+!app/backend/storage/framework/testing/.gitignore
+!app/backend/storage/framework/views/.gitignore
+!app/backend/storage/logs/.gitignore
+app/backend/.phpunit.cache/
+app/backend/.phpunit.result.cache
+app/backend/Homestead.json
+app/backend/Homestead.yaml
+
+# ============================================================
+# app/web (Next.js)
+# ============================================================
+app/web/node_modules/
+app/web/.next/
+app/web/out/
+app/web/build/
+app/web/coverage/
+app/web/.vercel
+app/web/*.tsbuildinfo
+app/web/next-env.d.ts
+app/web/.pnp
+app/web/.pnp.*
+app/web/.yarn/*
+!app/web/.yarn/patches
+!app/web/.yarn/plugins
+!app/web/.yarn/releases
+!app/web/.yarn/versions
+
+# ============================================================
+# app/mobile (Expo / React Native)
+# ============================================================
+app/mobile/node_modules/
+app/mobile/.expo/
+app/mobile/dist/
+app/mobile/web-build/
+app/mobile/expo-env.d.ts
+app/mobile/.metro-health-check*
+app/mobile/*.tsbuildinfo
+app/mobile/*.orig.*
+# ネイティブ生成物(eas/expo prebuild で再生成可能)
+app/mobile/ios/
+app/mobile/android/
+
+# ============================================================
+# doc/archive — アーカイブ配下の依存物
+# ============================================================
+doc/archive/**/node_modules/
+doc/archive/**/.expo/
+doc/archive/**/dist/
+doc/archive/**/build/
+doc/archive/**/.next/
+
+# ============================================================
+# その他
+# ============================================================
+# テストカバレッジ
+coverage/
+
+# ビルド成果物の汎用パターン(誤って増えても拾う)
+**/.DS_Store

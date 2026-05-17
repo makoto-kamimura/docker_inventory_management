@@ -1,7 +1,13 @@
 <?php
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\ItemController;
 
-Route::get('/items', [ItemController::class, 'index']);        // 取得
-Route::post('/items', [ItemController::class, 'store']);       // 追加
-Route::put('/items/{id}/decrement', [ItemController::class, 'decrement']); // 在庫 -1
+use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\ItemController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/categories', [CategoryController::class, 'index']);
+Route::post('/categories', [CategoryController::class, 'store']);
+
+Route::get('/items', [ItemController::class, 'index']);
+Route::post('/items', [ItemController::class, 'store']);
+Route::put('/items/{item}/decrement', [ItemController::class, 'decrement']);
+Route::get('/items/{item}/histories', [ItemController::class, 'histories']);

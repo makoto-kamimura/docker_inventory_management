@@ -1,37 +1,48 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Item;
+use Illuminate\Http\Request;
 
 class ItemController extends Controller
 {
     public function index()
     {
-        return Item::all();
+        return Item::with('category')->orderBy('name')->get();
     }
 
     public function store(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string',
-            'category' => 'required|string',
-            'stock' => 'required|integer',
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'category_id' => 'required|integer|exists:categories,id',
+            'stock' => 'required|integer|min:0',
         ]);
 
-        return Item::create($request->all());
+        $item = Item::create($data);
+
+        if ($item->stock > 0) {
+            $item->histories()->create(['change' => $item->stock]);
+        }
+
+        return $item->load('category');
     }
 
-    public function decrement($id)
+    public function decrement(Item $item)
     {
-        $item = Item::findOrFail($id);
-        if ($item->stock > 0) {
-            $item->stock -= 1;
-            $item->save();
-
-            // 在庫履歴追加
-            $item->histories()->create(['change' => -1]);
+        if ($item->stock <= 0) {
+            return response()->json(['error' => '在庫がありません'], 409);
         }
-        return $item;
+
+        $item->decrement('stock');
+        $item->histories()->create(['change' => -1]);
+
+        return $item->fresh('category');
+    }
+
+    public function histories(Item $item)
+    {
+        return $item->histories()->orderByDesc('id')->get();
     }
 }

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build: ./docker
@@ -9,33 +7,51 @@ services:
     volumes:
       - ../app/backend:/var/www
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     working_dir: /var/www
+    environment:
+      # migrate (default, データ保持) / fresh (初期化 + seed)
+      MIGRATE_MODE: ${MIGRATE_MODE:-migrate}
     command: sh -c "./wait-for-db.sh"
-    # command: sh -c "php artisan migrate:fresh --seed && php artisan serve --host=0.0.0.0 --port=8000"
 
   db:
     image: mysql:8.0
     container_name: mysql_db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: inventory
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory}
+      MYSQL_USER: ${MYSQL_USER:-user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password}
     ports:
       - "3306:3306"
     volumes:
       - ./mysql:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -uroot
+        - -p${MYSQL_ROOT_PASSWORD:-rootpassword}
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   phpmyadmin:
-    image: phpmyadmin/phpmyadmin
+    # Docker Library 公式タグ (multi-arch: amd64 / arm64/v8 / etc)
+    # phpmyadmin/phpmyadmin は amd64 単独のため Apple Silicon でエミュ動作になる
+    image: phpmyadmin:latest
     container_name: phpmyadmin
     restart: always
     ports:
       - "8080:80"
     environment:
       PMA_HOST: db
-      PMA_USER: user
-      PMA_PASSWORD: password
+      PMA_USER: ${MYSQL_USER:-user}
+      PMA_PASSWORD: ${MYSQL_PASSWORD:-password}
+    depends_on:
+      db:
+        condition: service_healthy

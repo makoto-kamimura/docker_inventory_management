@@ -55,3 +55,24 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  web:
+    build: ../app/web
+    container_name: nextjs_web
+    ports:
+      - "3000:3000"
+    volumes:
+      # ソースを bind mount。dev モードのホットリロードと、production モードでも
+      # 再ビルドなしにコード変更が次回 docker compose up で反映されるようにする。
+      - ../app/web:/app
+      # ホスト (macOS) の node_modules / .next が linux コンテナ側を上書きしないよう
+      # 匿名ボリュームで隔離する。
+      - /app/node_modules
+      - /app/.next
+    environment:
+      # production (default, next build + next start) / dev (next dev で HMR)
+      WEB_MODE: ${WEB_MODE:-production}
+      # ブラウザから Laravel API を叩く URL。ホスト側から見える URL を指定する。
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    depends_on:
+      - app

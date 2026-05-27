@@ -13,6 +13,7 @@ export type Item = {
   name: string;
   category_id: number;
   stock: number;
+  barcode?: string | null;
   created_at?: string;
   updated_at?: string;
   category?: Category;
@@ -25,6 +26,19 @@ export type ItemHistory = {
   changed_at: string;
   created_at?: string;
   updated_at?: string;
+};
+
+export type AnalyticsPeriod = "daily" | "monthly";
+export type AnalyticsGroup = "total" | "category";
+
+export type AnalyticsSeries = {
+  name: string;
+  values: number[];
+};
+
+export type AnalyticsTimeseries = {
+  labels: string[]; // daily: "YYYY-MM-DD", monthly: "YYYY-MM"
+  series: AnalyticsSeries[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -71,6 +85,20 @@ export const api = {
   decrementItem: (id: number) =>
     request<Item>(`/api/items/${id}/decrement`, { method: "PUT" }),
 
+  incrementItem: (id: number) =>
+    request<Item>(`/api/items/${id}/increment`, { method: "PUT" }),
+
+  setItemBarcode: (id: number, barcode: string | null) =>
+    request<Item>(`/api/items/${id}/barcode`, {
+      method: "PUT",
+      body: JSON.stringify({ barcode }),
+    }),
+
   listHistories: (id: number) =>
     request<ItemHistory[]>(`/api/items/${id}/histories`),
+
+  listAnalyticsTimeseries: (period: AnalyticsPeriod, group: AnalyticsGroup) =>
+    request<AnalyticsTimeseries>(
+      `/api/analytics/timeseries?period=${period}&group=${group}`,
+    ),
 };

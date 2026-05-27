@@ -1,0 +1,49 @@
+# Laravel API (PHP-FPM) — production image
+# ビルドコンテキストはリポジトリルート (`docker-compose.prod.yml` の build.context: ..)
+FROM php:8.2-fpm-alpine
+
+# PHP 拡張に必要なシステムパッケージ
+RUN apk add --no-cache --virtual .build-deps \
+        autoconf g++ make \
+    && apk add --no-cache \
+        git \
+        unzip \
+        libpng-dev \
+        oniguruma-dev \
+        libxml2-dev \
+        netcat-openbsd \
+    && docker-php-ext-install \
+        pdo_mysql \
+        mbstring \
+        xml \
+        bcmath \
+    && apk del .build-deps
+
+# Composer (公式イメージからバイナリだけ拾う)
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www
+
+# ---- 依存解決 (キャッシュ層) -------------------------------------------------
+COPY app/backend/composer.json app/backend/composer.lock ./
+RUN composer install \
+        --no-dev \
+        --no-interaction \
+        --prefer-dist \
+        --no-scripts \
+        --no-autoloader \
+    && rm -rf /root/.composer/cache
+
+# ---- アプリ本体 -------------------------------------------------------------
+COPY app/backend/ ./
+RUN composer dump-autoload --optimize --no-dev \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && rm -rf /root/.composer/cache
+
+# ---- エントリポイント --------------------------------------------------------
+COPY platform/docker/prod-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+EXPOSE 9000
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["php-fpm"]

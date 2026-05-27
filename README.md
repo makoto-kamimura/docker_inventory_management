@@ -27,9 +27,10 @@ docker_inventory_management/
 ```bash
 # 1. 環境変数を準備
 cp app/backend/.env.example app/backend/.env
-cp platform/.env.example platform/.env       # DB パスワード等を必要に応じて編集
+cp platform/.env.example platform/.env       # DB パスワード / WEB_MODE 等を必要に応じて編集
 
-# 2. バックエンド + DB 起動 (初回は MIGRATE_MODE=fresh で seed 投入)
+# 2. 全サービス起動 (API + Web + DB + phpMyAdmin)
+#    初回は MIGRATE_MODE=fresh で seed 投入
 cd platform
 MIGRATE_MODE=fresh docker compose up -d
 
@@ -37,29 +38,32 @@ MIGRATE_MODE=fresh docker compose up -d
 docker compose exec app php artisan key:generate
 
 # 4. 動作確認
-curl http://localhost:8000/api/items
+open http://localhost:3000                   # Web UI
+curl http://localhost:8000/api/items         # API
 open http://localhost:8080                   # phpMyAdmin
 ```
 
-| Service     | URL                       |
-| ----------- | ------------------------- |
-| Laravel API | http://localhost:8000     |
-| phpMyAdmin  | http://localhost:8080     |
-| MySQL       | localhost:3306            |
+| Service       | URL                       |
+| ------------- | ------------------------- |
+| Web (Next.js) | http://localhost:3000     |
+| Laravel API   | http://localhost:8000     |
+| phpMyAdmin    | http://localhost:8080     |
+| MySQL         | localhost:3306            |
 
-詳細は [doc/operation.md](doc/operation.md) を参照。
+Web は既定で **production モード** (`next build` + `next start`) で起動する。開発中に HMR が欲しい場合は `WEB_MODE=dev` を指定:
+
+```bash
+WEB_MODE=dev docker compose up -d web        # その場で dev に切替
+# もしくは platform/.env に WEB_MODE=dev を書いて永続化
+```
+
+詳細 (モード切替・Docker を介さない直接起動・トラブルシュート) は [doc/operation.md](doc/operation.md) を参照。
 
 ## フロントエンド
 
-### Web (Next.js)
-
-```bash
-cd app/web
-npm install
-npm run dev    # http://localhost:3000
-```
-
 ### Mobile (Expo)
+
+モバイルは Docker に含めず、開発機から起動する:
 
 ```bash
 cd app/mobile

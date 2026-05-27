@@ -1,0 +1,62 @@
+# Caddy 設定 — production リバースプロキシ
+#
+# - {$VAR} は実行時の環境変数で置換される (compose の environment 経由)。
+# - SITE_HOSTNAME を公開ドメインにすると Caddy が Let's Encrypt から自動で
+#   TLS 証明書を取得し、80→443 リダイレクトも自動で設定する。
+# - 開発・初期セットアップ時は SITE_HOSTNAME=:80 にすれば HTTP のみで動く。
+
+{
+    email {$ACME_EMAIL}
+    servers {
+        # 内部ネットワーク (RFC1918 + ループバック) からの X-Forwarded-* を信頼する。
+        # - Caddy が直接インターネットに面している場合: 影響なし (実トラフィックは公的 IP 経由)。
+        # - 外部 Nginx / LB / Cloudflare などの後ろに置く場合: Nginx の IP がプライベート帯なら
+        #   実クライアント IP と scheme (https) が Laravel・ログに正しく伝わる。
+        # 公的 IP のプロキシを使う場合は `static <CIDR>` に書き換えること:
+        #   trusted_proxies static 203.0.113.10/32 198.51.100.0/24
+        trusted_proxies private_ranges
+    }
+}
+
+# ---- メインサイト (Web + API) ------------------------------------------------
+{$SITE_HOSTNAME} {
+    # /api/* と Laravel 標準の /up はバックエンドの PHP-FPM (FastCGI) へ。
+    # /favicon.ico /robots.txt は Laravel の public/ から配信。
+    @backend path /api/* /up /favicon.ico /robots.txt
+    handle @backend {
+        root * /var/www/public
+        php_fastcgi app:9000
+        file_server
+    }
+
+    # それ以外は Next.js (web) に流す。
+    handle {
+        reverse_proxy web:3000
+    }
+
+    encode gzip zstd
+
+    # アクセスログを stdout (docker logs proxy) に流す
+    log {
+        output stdout
+        format console
+    }
+}
+
+# ---- phpMyAdmin (任意 / サブドメイン運用) -----------------------------------
+# 既定 (`localhost:8888`) では外部にバインドしないので実質無効。
+# 本番で使うときは PMA_HOSTNAME を pma.example.com 等に変更すること。
+# パスワードは bcrypt ハッシュで PMA_PASSWORD_HASH に渡す:
+#   docker compose -f docker-compose.prod.yml run --rm proxy \
+#     caddy hash-password --plaintext 'YourPassword'
+{$PMA_HOSTNAME} {
+    basic_auth {
+        {$PMA_USER} {$PMA_PASSWORD_HASH}
+    }
+    reverse_proxy phpmyadmin:80
+
+    log {
+        output stdout
+        format console
+    }
+}

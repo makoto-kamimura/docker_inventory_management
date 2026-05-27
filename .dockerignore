@@ -1,0 +1,43 @@
+# build context (repo root) から除外して、本番イメージビルドを高速かつ軽量に保つ。
+# platform/docker-compose.prod.yml で context: .. を使う各 Dockerfile に適用される。
+
+# VCS / IDE
+.git
+.github
+.vscode
+.idea
+.DS_Store
+
+# Docs / archive (本番イメージには不要)
+doc/
+README.md
+LICENSE
+
+# Dev / data 領域
+platform/mysql/
+platform/.env
+platform/.env.local
+platform/.env.prod
+
+# Node 系 — 各 Dockerfile が npm ci で再構築する
+app/web/node_modules
+app/web/.next
+app/web/.env.local
+app/mobile/node_modules
+app/mobile/.expo
+app/mobile/.env
+
+# Laravel ローカル成果物
+app/backend/vendor
+app/backend/.env
+app/backend/storage/logs/*
+app/backend/storage/framework/cache/data/*
+app/backend/storage/framework/sessions/*
+app/backend/storage/framework/views/*
+app/backend/bootstrap/cache/*.php
+
+# Compose の dev 用 Dockerfile はビルド時に不要 (prod 用は明示的に COPY する)
+**/*.bk
+
+# Logs
+*.log

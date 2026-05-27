@@ -27,6 +27,7 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.sample
+!.env.prod.example
 *.env.backup
 *.env.bk
 

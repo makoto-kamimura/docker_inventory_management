@@ -14,12 +14,16 @@ class AnalyticsController extends Controller
     {
         $period = $request->query('period', 'daily');
         $group = $request->query('group', 'total');
+        $metric = $request->query('metric', 'stock');
 
         if (!in_array($period, ['daily', 'monthly'], true)) {
             $period = 'daily';
         }
         if (!in_array($group, ['total', 'category'], true)) {
             $group = 'total';
+        }
+        if (!in_array($metric, ['stock', 'amount'], true)) {
+            $metric = 'stock';
         }
 
         if ($period === 'daily') {
@@ -48,10 +52,82 @@ class AnalyticsController extends Controller
 
         $histories = ItemHistory::query()
             ->orderBy('changed_at')
-            ->get(['item_id', 'change', 'changed_at']);
+            ->get(['item_id', 'change', 'amount', 'changed_at']);
 
         $n = count($labels);
         $lastLabel = $labels[$n - 1];
+
+        // 金額 (補充金額) の推移: 在庫の「水準」ではなく各バケットの amount 合計 (フロー)。
+        if ($metric === 'amount') {
+            if ($group === 'total') {
+                $sums = array_fill_keys($labels, 0);
+                foreach ($histories as $h) {
+                    if ($h->amount === null) {
+                        continue;
+                    }
+                    $bucket = $bucketOf((string) $h->changed_at);
+                    if (isset($sums[$bucket])) {
+                        $sums[$bucket] += (int) $h->amount;
+                    }
+                }
+                $values = [];
+                foreach ($labels as $l) {
+                    $values[] = $sums[$l];
+                }
+
+                return [
+                    'labels' => $labels,
+                    'series' => [
+                        ['name' => '補充金額', 'values' => $values],
+                    ],
+                ];
+            }
+
+            // group === 'category'
+            $categories = Category::orderBy('id')->get();
+            $sumsByCategory = [];
+            foreach ($categories as $c) {
+                $sumsByCategory[$c->id] = array_fill_keys($labels, 0);
+            }
+            $sumsOrphan = array_fill_keys($labels, 0);
+
+            foreach ($histories as $h) {
+                if ($h->amount === null) {
+                    continue;
+                }
+                $bucket = $bucketOf((string) $h->changed_at);
+                if (!isset($sumsOrphan[$bucket])) {
+                    continue; // 表示ウィンドウ外
+                }
+                $cid = $itemCategory[$h->item_id] ?? null;
+                if ($cid !== null && isset($sumsByCategory[$cid])) {
+                    $sumsByCategory[$cid][$bucket] += (int) $h->amount;
+                } else {
+                    $sumsOrphan[$bucket] += (int) $h->amount;
+                }
+            }
+
+            $series = [];
+            foreach ($categories as $c) {
+                $values = [];
+                foreach ($labels as $l) {
+                    $values[] = $sumsByCategory[$c->id][$l];
+                }
+                $series[] = ['name' => $c->name, 'values' => $values];
+            }
+            if (array_sum($sumsOrphan) !== 0) {
+                $values = [];
+                foreach ($labels as $l) {
+                    $values[] = $sumsOrphan[$l];
+                }
+                $series[] = ['name' => '(未分類)', 'values' => $values];
+            }
+
+            return [
+                'labels' => $labels,
+                'series' => $series,
+            ];
+        }
 
         if ($group === 'total') {
             $currentTotal = (int) $items->sum('stock');

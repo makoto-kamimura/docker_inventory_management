@@ -50,6 +50,7 @@ export type ItemHistory = {
 
 export type AnalyticsPeriod = "daily" | "monthly";
 export type AnalyticsGroup = "total" | "category";
+export type AnalyticsMetric = "stock" | "amount";
 
 export type AnalyticsSeries = {
   name: string;
@@ -204,8 +205,12 @@ export const api = {
   listHistories: (id: number) =>
     request<ItemHistory[]>(`/api/items/${id}/histories`),
 
-  listAnalyticsTimeseries: (period: AnalyticsPeriod, group: AnalyticsGroup) =>
+  listAnalyticsTimeseries: (
+    period: AnalyticsPeriod,
+    group: AnalyticsGroup,
+    metric: AnalyticsMetric = "stock",
+  ) =>
     request<AnalyticsTimeseries>(
-      `/api/analytics/timeseries?period=${period}&group=${group}`,
+      `/api/analytics/timeseries?period=${period}&group=${group}&metric=${metric}`,
     ),
 };

@@ -66,7 +66,7 @@ docker_inventory_management/
 | F-09  | 認証 / 認可     | トークン (Bearer) 認証。`POST /api/login` でトークン発行、全 API に付与必須。失効は `POST /api/logout` | 実装済 (シードユーザーのみ。認可ロールは無し) |
 | F-10  | 在庫増 (+1)     | `PUT /api/items/{item}/increment` — 1個追加 + 履歴 `+1` 記録 (在庫0からの補充は金額入力 → 履歴 `amount`) | 実装済 |
 | F-11  | バーコードスキャン | `POST /api/items/scan` — barcode 一致なら +1 して `{action:"incremented",item}` / 未登録なら 404 + `{action:"not_found",barcode}` を返す。モバイルは `expo-camera` の `CameraView` で読み取り | 実装済 (モバイルのみ) |
-| F-12  | 日次分析        | `GET /api/analytics/daily` — `changed_at` を日付集計し `{date,plus,minus,count}` を返却。Web の「分析」タブでダイバージング横棒として可視化 | 実装済 (Web のみ) |
+| F-12  | 分析 (時系列)   | `GET /api/analytics/timeseries?period=&group=&metric=` — **在庫数 (`metric=stock`, 水準)** または **補充金額 (`metric=amount`, 各バケットの `amount` 合計)** を日毎/月毎・総合計/カテゴリ別で返却。Web の「分析」タブで折れ線表示 (在庫数/金額トグル) | 実装済 (Web のみ) |
 | F-13  | カテゴリ変更    | `PUT /api/items/{item}/category` — 登録済み物品の所属カテゴリを変更。Web は一覧の「移動」ボタンから select Modal、モバイルは「移動」ボタンから chip 選択 Modal | 実装済 |
 | F-14  | 在庫切れ絞り込み | 在庫一覧で「すべて / 在庫切れのみ (`stock<=0`)」を切替。Web / モバイル両対応 | 実装済 |
 | F-15  | 保管場所管理    | `GET/POST /api/storage-locations` — カテゴリに紐づく自由記述 (`description`) の保管場所を登録・一覧。Web/モバイルに「保管場所追加」タブ | 実装済 |
@@ -117,7 +117,7 @@ Eloquent: `Item belongsTo Category` / `Item hasMany ItemHistory` / `ItemHistory 
 | PUT    | `/api/items/{item}/barcode`         | バーコード設定/解除 (`barcode?` nullable unique)。Item 同梱で返却 | 200 / 404 / 422 |
 | PUT    | `/api/items/{item}/category`        | 所属カテゴリ変更 (`category_id` 必須/`exists:categories,id`)。Item を `category` 同梱で返却 | 200 / 404 / 422 |
 | GET    | `/api/items/{item}/histories`       | Item の履歴 (新しい順)     | 200 / 404      |
-| GET    | `/api/analytics/daily`              | `changed_at` を日付集計。`[{date,plus,minus,count}]` を新しい順で返却 | 200 |
+| GET    | `/api/analytics/timeseries`         | `period` (daily/monthly) × `group` (total/category) × `metric` (stock/amount) で時系列を集計。`{labels, series:[{name,values}]}` を返却 | 200 |
 | GET    | `/up`                               | Laravel 標準ヘルスチェック | 200             |
 
 > ルートは `bootstrap/app.php` の `withRouting(api: ...)` で `/api` プレフィックス + `api` ミドルウェアグループ。Laravel 11+ では明示登録が必須。

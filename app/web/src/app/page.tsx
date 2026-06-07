@@ -6,6 +6,7 @@ import {
   getToken,
   setUnauthorizedHandler,
   type AnalyticsGroup,
+  type AnalyticsMetric,
   type AnalyticsPeriod,
   type AnalyticsTimeseries,
   type Category,
@@ -94,6 +95,8 @@ function InventoryApp({
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>("daily");
   const [analyticsGroup, setAnalyticsGroup] = useState<AnalyticsGroup>("total");
+  const [analyticsMetric, setAnalyticsMetric] =
+    useState<AnalyticsMetric>("stock");
 
   const [barcodeEditTarget, setBarcodeEditTarget] = useState<Item | null>(null);
   const [categoryEditTarget, setCategoryEditTarget] = useState<Item | null>(null);
@@ -137,10 +140,11 @@ function InventoryApp({
   const loadAnalytics = async (
     period: AnalyticsPeriod = analyticsPeriod,
     group: AnalyticsGroup = analyticsGroup,
+    metric: AnalyticsMetric = analyticsMetric,
   ) => {
     setAnalyticsLoading(true);
     try {
-      const data = await api.listAnalyticsTimeseries(period, group);
+      const data = await api.listAnalyticsTimeseries(period, group, metric);
       setAnalytics(data);
       setError(null);
     } catch (e) {
@@ -152,17 +156,22 @@ function InventoryApp({
 
   const openAnalytics = () => {
     setTab("analytics");
-    void loadAnalytics(analyticsPeriod, analyticsGroup);
+    void loadAnalytics(analyticsPeriod, analyticsGroup, analyticsMetric);
   };
 
   const handleChangePeriod = (next: AnalyticsPeriod) => {
     setAnalyticsPeriod(next);
-    void loadAnalytics(next, analyticsGroup);
+    void loadAnalytics(next, analyticsGroup, analyticsMetric);
   };
 
   const handleChangeGroup = (next: AnalyticsGroup) => {
     setAnalyticsGroup(next);
-    void loadAnalytics(analyticsPeriod, next);
+    void loadAnalytics(analyticsPeriod, next, analyticsMetric);
+  };
+
+  const handleChangeMetric = (next: AnalyticsMetric) => {
+    setAnalyticsMetric(next);
+    void loadAnalytics(analyticsPeriod, analyticsGroup, next);
   };
 
   const itemsByCategory = useMemo(() => {
@@ -591,8 +600,18 @@ function InventoryApp({
       {tab === "analytics" && (
         <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-            <h2 className="font-semibold">在庫数の推移</h2>
+            <h2 className="font-semibold">
+              {analyticsMetric === "amount" ? "補充金額の推移" : "在庫数の推移"}
+            </h2>
             <div className="flex flex-wrap items-center gap-2">
+              <SegControl<AnalyticsMetric>
+                value={analyticsMetric}
+                onChange={handleChangeMetric}
+                options={[
+                  { value: "stock", label: "在庫数" },
+                  { value: "amount", label: "金額" },
+                ]}
+              />
               <SegControl<AnalyticsPeriod>
                 value={analyticsPeriod}
                 onChange={handleChangePeriod}
@@ -625,7 +644,11 @@ function InventoryApp({
           ) : !analytics || analytics.series.length === 0 ? (
             <p className="px-4 py-6 text-sm text-zinc-500">履歴がありません</p>
           ) : (
-            <AnalyticsLineChart data={analytics} period={analyticsPeriod} />
+            <AnalyticsLineChart
+              data={analytics}
+              period={analyticsPeriod}
+              metric={analyticsMetric}
+            />
           )}
         </section>
       )}
@@ -1232,11 +1255,16 @@ const SERIES_COLORS = [
 function AnalyticsLineChart({
   data,
   period,
+  metric,
 }: {
   data: AnalyticsTimeseries;
   period: AnalyticsPeriod;
+  metric: AnalyticsMetric;
 }) {
   const { labels, series } = data;
+
+  const fmt = (v: number) =>
+    metric === "amount" ? `¥${v.toLocaleString("ja-JP")}` : String(v);
 
   const [yMin, yMax] = useMemo(() => {
     let min = Infinity;
@@ -1259,7 +1287,7 @@ function AnalyticsLineChart({
 
   const width = 1000;
   const height = 360;
-  const padL = 48;
+  const padL = metric === "amount" ? 72 : 48;
   const padR = 16;
   const padT = 16;
   const padB = 40;
@@ -1310,7 +1338,7 @@ function AnalyticsLineChart({
                 dominantBaseline="central"
                 className="fill-zinc-500 text-[10px]"
               >
-                {t}
+                {fmt(t)}
               </text>
             </g>
           );
@@ -1372,7 +1400,7 @@ function AnalyticsLineChart({
                   r={2.5}
                   fill={color}
                 >
-                  <title>{`${s.name} / ${formatBucketLabel(labels[i], period)}: ${v}`}</title>
+                  <title>{`${s.name} / ${formatBucketLabel(labels[i], period)}: ${fmt(v)}`}</title>
                 </circle>
               ))}
             </g>

@@ -38,6 +38,7 @@ export default function Home() {
   const [analyticsGroup, setAnalyticsGroup] = useState<AnalyticsGroup>("total");
 
   const [barcodeEditTarget, setBarcodeEditTarget] = useState<Item | null>(null);
+  const [categoryEditTarget, setCategoryEditTarget] = useState<Item | null>(null);
 
   const [listFilter, setListFilter] = useState<"all" | "out_of_stock">("all");
 
@@ -175,6 +176,16 @@ export default function Home() {
     }
   };
 
+  const handleSaveCategory = async (item: Item, categoryId: number) => {
+    try {
+      await api.setItemCategory(item.id, categoryId);
+      setCategoryEditTarget(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const openHistory = async (item: Item) => {
     setHistoryTarget(item);
     setHistoryLoading(true);
@@ -285,6 +296,7 @@ export default function Home() {
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
                       onEditBarcode={setBarcodeEditTarget}
+                      onMoveCategory={setCategoryEditTarget}
                     />
                   );
                 })}
@@ -297,6 +309,7 @@ export default function Home() {
                     onDecrement={handleDecrement}
                     onOpenHistory={openHistory}
                     onEditBarcode={setBarcodeEditTarget}
+                    onMoveCategory={setCategoryEditTarget}
                   />
                 )}
               </div>
@@ -431,6 +444,15 @@ export default function Home() {
         />
       )}
 
+      {categoryEditTarget && (
+        <CategoryEditModal
+          item={categoryEditTarget}
+          categories={categories}
+          onClose={() => setCategoryEditTarget(null)}
+          onSave={handleSaveCategory}
+        />
+      )}
+
       {historyTarget && (
         <div
           className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
@@ -515,6 +537,7 @@ function CategoryGroup({
   onDecrement,
   onOpenHistory,
   onEditBarcode,
+  onMoveCategory,
 }: {
   title: string;
   count: number;
@@ -523,6 +546,7 @@ function CategoryGroup({
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
   onEditBarcode: (item: Item) => void;
+  onMoveCategory: (item: Item) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -594,8 +618,17 @@ function CategoryGroup({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onOpenHistory(item)}
+                  onClick={() => onMoveCategory(item)}
+                  aria-label="カテゴリを変更"
+                  title="カテゴリを変更"
                   className="ml-1 rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  移動
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenHistory(item)}
+                  className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   履歴
                 </button>
@@ -680,6 +713,86 @@ function BarcodeEditModal({
             type="button"
             disabled={saving || value.trim() === (item.barcode ?? "")}
             onClick={() => submit(value.trim() === "" ? null : value.trim())}
+            className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoryEditModal({
+  item,
+  categories,
+  onClose,
+  onSave,
+}: {
+  item: Item;
+  categories: Category[];
+  onClose: () => void;
+  onSave: (item: Item, categoryId: number) => Promise<void>;
+}) {
+  const [value, setValue] = useState<number | "">(item.category_id);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (value === "") return;
+    setSaving(true);
+    try {
+      await onSave(item, Number(value));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">{item.name} のカテゴリ変更</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          >
+            ×
+          </button>
+        </div>
+        <select
+          value={value}
+          onChange={(e) =>
+            setValue(e.target.value === "" ? "" : Number(e.target.value))
+          }
+          className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          autoFocus
+        >
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={saving || value === "" || value === item.category_id}
+            onClick={() => void submit()}
             className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             保存

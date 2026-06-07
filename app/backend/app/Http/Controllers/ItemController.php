@@ -68,6 +68,18 @@ class ItemController extends Controller
         return $item->fresh('category');
     }
 
+    public function updateCategory(Item $item, Request $request)
+    {
+        $data = $request->validate([
+            'category_id' => 'required|integer|exists:categories,id',
+        ]);
+
+        $item->category_id = $data['category_id'];
+        $item->save();
+
+        return $item->fresh('category');
+    }
+
     public function scan(Request $request)
     {
         $data = $request->validate([

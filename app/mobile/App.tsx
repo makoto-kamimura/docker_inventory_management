@@ -48,6 +48,9 @@ export default function App() {
   const [histories, setHistories] = useState<ItemHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // カテゴリ変更対象 (null なら閉じている)
+  const [categoryEditItem, setCategoryEditItem] = useState<Item | null>(null);
+
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanProcessing, setScanProcessing] = useState(false);
   // CameraView は 1 フレームごとに onBarcodeScanned を発火する (~30fps)。
@@ -248,6 +251,16 @@ export default function App() {
     }
   };
 
+  const handleMoveCategory = async (item: Item, categoryId: number) => {
+    try {
+      await api.setItemCategory(item.id, categoryId);
+      setCategoryEditItem(null);
+      await reload();
+    } catch (e) {
+      Alert.alert("カテゴリ変更失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const openHistory = async (item: Item) => {
     setHistoryItem(item);
     setHistoryLoading(true);
@@ -333,6 +346,7 @@ export default function App() {
                     onDecrement={handleDecrement}
                     onOpenHistory={openHistory}
                     onEditBarcode={openBarcodeScannerFor}
+                    onMoveCategory={setCategoryEditItem}
                   />
                 ))}
                 {itemsByCategory.orphan.length > 0 && (
@@ -343,6 +357,7 @@ export default function App() {
                     onDecrement={handleDecrement}
                     onOpenHistory={openHistory}
                     onEditBarcode={openBarcodeScannerFor}
+                    onMoveCategory={setCategoryEditItem}
                   />
                 )}
               </View>
@@ -461,6 +476,58 @@ export default function App() {
             : null
         }
       />
+
+      <Modal
+        visible={categoryEditItem !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCategoryEditItem(null)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setCategoryEditItem(null)}
+        >
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.h2}>
+                {categoryEditItem?.name} のカテゴリ変更
+              </Text>
+              <Pressable onPress={() => setCategoryEditItem(null)}>
+                <Text style={styles.link}>閉じる</Text>
+              </Pressable>
+            </View>
+            {categories.length === 0 ? (
+              <Text style={styles.muted}>(カテゴリ未登録)</Text>
+            ) : (
+              <View style={styles.chipRow}>
+                {categories.map((c) => {
+                  const selected = c.id === categoryEditItem?.category_id;
+                  return (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => {
+                        if (categoryEditItem && !selected) {
+                          handleMoveCategory(categoryEditItem, c.id);
+                        }
+                      }}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {c.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={historyItem !== null}
@@ -639,6 +706,7 @@ function CategoryGroup({
   onDecrement,
   onOpenHistory,
   onEditBarcode,
+  onMoveCategory,
 }: {
   title: string;
   items: Item[];
@@ -646,6 +714,7 @@ function CategoryGroup({
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
   onEditBarcode: (item: Item) => void;
+  onMoveCategory: (item: Item) => void;
 }) {
   return (
     <View style={styles.group}>
@@ -709,6 +778,16 @@ function CategoryGroup({
                     accessibilityLabel="在庫増 (+1)"
                   >
                     <Text style={styles.iconButtonText}>＋</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.smallButton,
+                      pressed && styles.smallButtonPressed,
+                    ]}
+                    onPress={() => onMoveCategory(item)}
+                    accessibilityLabel="カテゴリを変更"
+                  >
+                    <Text style={styles.smallButtonText}>移動</Text>
                   </Pressable>
                   <Pressable
                     style={({ pressed }) => [

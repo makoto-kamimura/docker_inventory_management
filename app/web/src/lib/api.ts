@@ -94,6 +94,12 @@ export const api = {
       body: JSON.stringify({ barcode }),
     }),
 
+  setItemCategory: (id: number, category_id: number) =>
+    request<Item>(`/api/items/${id}/category`, {
+      method: "PUT",
+      body: JSON.stringify({ category_id }),
+    }),
+
   listHistories: (id: number) =>
     request<ItemHistory[]>(`/api/items/${id}/histories`),
 

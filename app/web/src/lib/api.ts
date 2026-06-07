@@ -1,6 +1,14 @@
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+const TOKEN_KEY = "inventory_auth_token";
+
+export type User = {
+  id: number;
+  name: string;
+  email: string;
+};
+
 export type Category = {
   id: number;
   name: string;
@@ -14,6 +22,15 @@ export type Item = {
   category_id: number;
   stock: number;
   barcode?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  category?: Category;
+};
+
+export type StorageLocation = {
+  id: number;
+  category_id: number;
+  description: string;
   created_at?: string;
   updated_at?: string;
   category?: Category;
@@ -41,31 +58,92 @@ export type AnalyticsTimeseries = {
   series: AnalyticsSeries[];
 };
 
+// --- 認証トークンの保持 (localStorage) -------------------------------------
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+
+function setToken(token: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TOKEN_KEY, token);
+}
+
+function clearToken(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(TOKEN_KEY);
+}
+
+// 401 を受けたときに UI 側へ通知してログイン画面へ戻すためのハンドラ
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   });
 
+  if (res.status === 401) {
+    clearToken();
+    onUnauthorized?.();
+    throw new Error("認証が切れました。再度ログインしてください。");
+  }
+
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
-      const data = (await res.json()) as { message?: string; error?: string };
-      message = data.message ?? data.error ?? message;
+      const data = (await res.json()) as {
+        message?: string;
+        error?: string;
+        errors?: Record<string, string[]>;
+      };
+      message =
+        (data.errors && Object.values(data.errors)[0]?.[0]) ??
+        data.message ??
+        data.error ??
+        message;
     } catch {
       // ignore parse error
     }
     throw new Error(message);
   }
 
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
 export const api = {
+  // --- 認証 ---
+  login: async (email: string, password: string): Promise<User> => {
+    const data = await request<{ token: string; user: User }>("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    setToken(data.token);
+    return data.user;
+  },
+
+  me: () => request<User>("/api/me"),
+
+  logout: async (): Promise<void> => {
+    try {
+      await request<void>("/api/logout", { method: "POST" });
+    } finally {
+      clearToken();
+    }
+  },
+
+  // --- カテゴリ ---
   listCategories: () => request<Category[]>("/api/categories"),
 
   createCategory: (name: string) =>
@@ -74,6 +152,20 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
+  // --- 保管場所 ---
+  listStorageLocations: () =>
+    request<StorageLocation[]>("/api/storage-locations"),
+
+  createStorageLocation: (input: {
+    category_id: number;
+    description: string;
+  }) =>
+    request<StorageLocation>("/api/storage-locations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // --- 物品 ---
   listItems: () => request<Item[]>("/api/items"),
 
   createItem: (input: { name: string; category_id: number; stock: number }) =>

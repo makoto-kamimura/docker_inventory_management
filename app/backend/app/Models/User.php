@@ -4,8 +4,10 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
@@ -44,5 +46,25 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function apiTokens(): HasMany
+    {
+        return $this->hasMany(ApiToken::class);
+    }
+
+    /**
+     * 新しい API トークンを発行し、平文を返す (平文は DB に保存しない)。
+     */
+    public function issueApiToken(?string $name = null): string
+    {
+        $plain = Str::random(64);
+
+        $this->apiTokens()->create([
+            'name' => $name,
+            'token' => ApiToken::hash($plain),
+        ]);
+
+        return $plain;
     }
 }

@@ -1,10 +1,37 @@
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+export type User = {
+  id: number;
+  name: string;
+  email: string;
+};
+
 export type Category = {
   id: number;
   name: string;
 };
+
+export type StorageLocation = {
+  id: number;
+  category_id: number;
+  description: string;
+  category?: Category;
+};
+
+// トークンはメモリ保持 (アプリ再起動で再ログイン)。永続化したい場合は
+// expo-secure-store を導入して get/set を差し替える。
+let authToken: string | null = null;
+
+export function getToken(): string | null {
+  return authToken;
+}
+
+// 401 を受けたとき UI 側へ通知してログイン画面へ戻すためのハンドラ
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
 
 export type Item = {
   id: number;
@@ -32,25 +59,74 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: {
       Accept: "application/json",
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...init?.headers,
     },
   });
 
+  if (res.status === 401) {
+    authToken = null;
+    onUnauthorized?.();
+    throw new Error("認証が切れました。再度ログインしてください。");
+  }
+
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
-      const data = (await res.json()) as { message?: string; error?: string };
-      message = data.message ?? data.error ?? message;
+      const data = (await res.json()) as {
+        message?: string;
+        error?: string;
+        errors?: Record<string, string[]>;
+      };
+      message =
+        (data.errors && Object.values(data.errors)[0]?.[0]) ??
+        data.message ??
+        data.error ??
+        message;
     } catch {
       // ignore parse error
     }
     throw new Error(message);
   }
 
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
 export const api = {
+  // --- 認証 ---
+  login: async (email: string, password: string): Promise<User> => {
+    const data = await request<{ token: string; user: User }>("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    authToken = data.token;
+    return data.user;
+  },
+
+  me: () => request<User>("/api/me"),
+
+  logout: async (): Promise<void> => {
+    try {
+      await request<void>("/api/logout", { method: "POST" });
+    } finally {
+      authToken = null;
+    }
+  },
+
+  // --- 保管場所 ---
+  listStorageLocations: () =>
+    request<StorageLocation[]>("/api/storage-locations"),
+
+  createStorageLocation: (input: {
+    category_id: number;
+    description: string;
+  }) =>
+    request<StorageLocation>("/api/storage-locations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
   listCategories: () => request<Category[]>("/api/categories"),
 
   createCategory: (name: string) =>
@@ -80,6 +156,7 @@ export const api = {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
       body: JSON.stringify({ barcode }),
     });

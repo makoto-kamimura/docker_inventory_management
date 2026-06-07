@@ -12,4 +12,9 @@ class Category extends Model
     {
         return $this->hasMany(Item::class);
     }
+
+    public function storageLocations(): HasMany
+    {
+        return $this->hasMany(StorageLocation::class);
+    }
 }

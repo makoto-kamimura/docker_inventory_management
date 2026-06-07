@@ -3,23 +3,76 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   api,
+  getToken,
+  setUnauthorizedHandler,
   type AnalyticsGroup,
   type AnalyticsPeriod,
   type AnalyticsTimeseries,
   type Category,
   type Item,
   type ItemHistory,
+  type StorageLocation,
+  type User,
 } from "@/lib/api";
 
-type Tab = "list" | "category" | "item" | "analytics";
+type Tab = "list" | "category" | "item" | "storage" | "analytics";
 
 const CONTAINER = "mx-auto w-full max-w-5xl px-6 sm:px-10";
 
 export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    // 401 を受けたら自動でログイン画面に戻す
+    setUnauthorizedHandler(() => setUser(null));
+
+    (async () => {
+      if (!getToken()) {
+        setChecking(false);
+        return;
+      }
+      try {
+        setUser(await api.me());
+      } catch {
+        setUser(null);
+      } finally {
+        setChecking(false);
+      }
+    })();
+
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  if (checking) {
+    return (
+      <main className={`${CONTAINER} py-10`}>
+        <p className="text-sm text-zinc-500">読み込み中...</p>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLoggedIn={setUser} />;
+  }
+
+  return <InventoryApp user={user} onLogout={() => setUser(null)} />;
+}
+
+function InventoryApp({
+  user,
+  onLogout,
+}: {
+  user: User;
+  onLogout: () => void;
+}) {
   const [tab, setTab] = useState<Tab>("list");
 
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,6 +80,11 @@ export default function Home() {
   const [newItemName, setNewItemName] = useState("");
   const [newItemCategoryId, setNewItemCategoryId] = useState<number | "">("");
   const [newItemStock, setNewItemStock] = useState<number>(0);
+
+  const [newStorageCategoryId, setNewStorageCategoryId] = useState<
+    number | ""
+  >("");
+  const [newStorageDescription, setNewStorageDescription] = useState("");
 
   const [historyTarget, setHistoryTarget] = useState<Item | null>(null);
   const [histories, setHistories] = useState<ItemHistory[]>([]);
@@ -44,17 +102,29 @@ export default function Home() {
 
   const reload = async () => {
     try {
-      const [is, cs] = await Promise.all([
+      const [is, cs, sl] = await Promise.all([
         api.listItems(),
         api.listCategories(),
+        api.listStorageLocations(),
       ]);
       setItems(is);
       setCategories(cs);
+      setStorageLocations(sl);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // トークンはローカルでクリア済。失敗しても画面は閉じる。
+    } finally {
+      onLogout();
     }
   };
 
@@ -142,6 +212,26 @@ export default function Home() {
     }
   };
 
+  const handleAddStorage = async () => {
+    if (newStorageCategoryId === "") {
+      setError("カテゴリを選択してください");
+      return;
+    }
+    const description = newStorageDescription.trim();
+    if (!description) return;
+    try {
+      await api.createStorageLocation({
+        category_id: Number(newStorageCategoryId),
+        description,
+      });
+      setNewStorageDescription("");
+      await reload();
+      setTab("storage");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleDecrement = async (item: Item) => {
     try {
       await api.decrementItem(item.id);
@@ -201,13 +291,23 @@ export default function Home() {
 
   return (
     <main className={`${CONTAINER} py-6 sm:py-10 space-y-6`}>
-      <header>
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">在庫管理</h1>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-zinc-500">{user.name}</span>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded border border-zinc-300 px-3 py-1 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            ログアウト
+          </button>
+        </div>
       </header>
 
       <nav
         role="tablist"
-        className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800"
+        className="flex flex-wrap gap-1 border-b border-zinc-200 dark:border-zinc-800"
       >
         <TabButton active={tab === "list"} onClick={() => setTab("list")}>
           在庫一覧
@@ -217,6 +317,9 @@ export default function Home() {
         </TabButton>
         <TabButton active={tab === "item"} onClick={() => setTab("item")}>
           物品追加
+        </TabButton>
+        <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
+          保管場所追加
         </TabButton>
         <TabButton active={tab === "analytics"} onClick={openAnalytics}>
           分析
@@ -394,6 +497,81 @@ export default function Home() {
         </form>
       )}
 
+      {tab === "storage" && (
+        <div className="space-y-6">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleAddStorage();
+            }}
+            className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+          >
+            <h2 className="font-semibold">保管場所追加</h2>
+            <select
+              value={newStorageCategoryId}
+              onChange={(e) =>
+                setNewStorageCategoryId(
+                  e.target.value === "" ? "" : Number(e.target.value),
+                )
+              }
+              className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <option value="">カテゴリを選択</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <textarea
+              value={newStorageDescription}
+              onChange={(e) => setNewStorageDescription(e.target.value)}
+              placeholder="保管場所 (自由記述)　例: 2F 倉庫 棚A-3"
+              rows={2}
+              className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <button
+              type="submit"
+              className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              disabled={
+                !newStorageDescription.trim() || newStorageCategoryId === ""
+              }
+            >
+              追加
+            </button>
+          </form>
+
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <header className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <h2 className="font-semibold">保管場所一覧</h2>
+            </header>
+            {loading ? (
+              <p className="px-4 py-6 text-sm text-zinc-500">読み込み中...</p>
+            ) : storageLocations.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-zinc-500">
+                保管場所がありません
+              </p>
+            ) : (
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {storageLocations.map((sl) => (
+                  <li
+                    key={sl.id}
+                    className="flex items-start justify-between gap-3 px-4 py-3"
+                  >
+                    <span className="whitespace-pre-wrap break-words">
+                      {sl.description}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                      {sl.category?.name ?? "(カテゴリ未設定)"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
       {tab === "analytics" && (
         <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
@@ -502,6 +680,76 @@ export default function Home() {
   );
 }
 
+function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const user = await api.login(email.trim(), password);
+      onLoggedIn(user);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+        className="space-y-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800"
+      >
+        <h1 className="text-xl font-bold">在庫管理 ログイン</h1>
+        {error && (
+          <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {error}
+          </div>
+        )}
+        <div className="space-y-1">
+          <label className="text-sm text-zinc-600 dark:text-zinc-300">
+            メールアドレス
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-zinc-600 dark:text-zinc-300">
+            パスワード
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={submitting || !email.trim() || !password}
+          className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          {submitting ? "ログイン中..." : "ログイン"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
 function TabButton({
   active,
   onClick,
@@ -568,9 +816,9 @@ function CategoryGroup({
       <ul className="divide-y divide-zinc-100 border-t border-zinc-100 dark:divide-zinc-800 dark:border-zinc-800">
         {items.map((item) => (
           <li key={item.id} className="px-4 py-3 pl-8">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-medium">{item.name}</div>
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium break-words">{item.name}</div>
                 <button
                   type="button"
                   onClick={() => onEditBarcode(item)}
@@ -586,7 +834,7 @@ function CategoryGroup({
                   <span aria-hidden className="text-zinc-400">✎</span>
                 </button>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={() => onDecrement(item)}

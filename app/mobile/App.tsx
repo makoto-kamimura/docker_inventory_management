@@ -24,14 +24,39 @@ import {
 import {
   api,
   apiBaseUrl,
+  setUnauthorizedHandler,
   type Category,
   type Item,
   type ItemHistory,
+  type StorageLocation,
+  type User,
 } from "./src/api";
 
-type Tab = "list" | "category" | "item";
+type Tab = "list" | "category" | "item" | "storage";
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    // 401 を受けたら自動でログイン画面に戻す
+    setUnauthorizedHandler(() => setUser(null));
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  if (!user) {
+    return <LoginScreen onLoggedIn={setUser} />;
+  }
+
+  return <InventoryApp user={user} onLogout={() => setUser(null)} />;
+}
+
+function InventoryApp({
+  user,
+  onLogout,
+}: {
+  user: User;
+  onLogout: () => void;
+}) {
   const [tab, setTab] = useState<Tab>("list");
 
   const [items, setItems] = useState<Item[]>([]);
@@ -39,10 +64,22 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 在庫一覧の絞り込み: すべて / 在庫切れ (stock<=0) のみ
+  const [listFilter, setListFilter] = useState<"all" | "out_of_stock">("all");
+
+  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>(
+    [],
+  );
+
   const [categoryName, setCategoryName] = useState("");
   const [itemName, setItemName] = useState("");
   const [itemCategoryId, setItemCategoryId] = useState<number | null>(null);
   const [itemStock, setItemStock] = useState("0");
+
+  const [storageCategoryId, setStorageCategoryId] = useState<number | null>(
+    null,
+  );
+  const [storageDescription, setStorageDescription] = useState("");
 
   const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [histories, setHistories] = useState<ItemHistory[]>([]);
@@ -64,14 +101,19 @@ export default function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [is, cs] = await Promise.all([
+      const [is, cs, sl] = await Promise.all([
         api.listItems(),
         api.listCategories(),
+        api.listStorageLocations(),
       ]);
       setItems(is);
       setCategories(cs);
+      setStorageLocations(sl);
       if (cs.length > 0 && itemCategoryId == null) {
         setItemCategoryId(cs[0].id);
+      }
+      if (cs.length > 0 && storageCategoryId == null) {
+        setStorageCategoryId(cs[0].id);
       }
     } catch (e) {
       Alert.alert("読み込みエラー", e instanceof Error ? e.message : String(e));
@@ -79,7 +121,7 @@ export default function App() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [itemCategoryId]);
+  }, [itemCategoryId, storageCategoryId]);
 
   useEffect(() => {
     reload();
@@ -91,16 +133,20 @@ export default function App() {
   };
 
   const itemsByCategory = useMemo(() => {
+    const filtered =
+      listFilter === "out_of_stock"
+        ? items.filter((it) => it.stock <= 0)
+        : items;
     const map = new Map<number, Item[]>();
     for (const c of categories) map.set(c.id, []);
     const orphan: Item[] = [];
-    for (const it of items) {
+    for (const it of filtered) {
       const bucket = map.get(it.category_id);
       if (bucket) bucket.push(it);
       else orphan.push(it);
     }
     return { map, orphan };
-  }, [items, categories]);
+  }, [items, categories, listFilter]);
 
   const handleAddCategory = async () => {
     const name = categoryName.trim();
@@ -137,6 +183,36 @@ export default function App() {
       setTab("list");
     } catch (e) {
       Alert.alert("物品追加失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleAddStorage = async () => {
+    if (storageCategoryId == null) {
+      Alert.alert("入力エラー", "カテゴリを選択してください");
+      return;
+    }
+    const description = storageDescription.trim();
+    if (!description) return;
+    try {
+      await api.createStorageLocation({
+        category_id: storageCategoryId,
+        description,
+      });
+      setStorageDescription("");
+      await reload();
+      setTab("list");
+    } catch (e) {
+      Alert.alert("保管場所追加失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // トークンはローカルでクリア済。失敗しても画面は閉じる。
+    } finally {
+      onLogout();
     }
   };
 
@@ -288,14 +364,29 @@ export default function App() {
       <StatusBar style="auto" />
 
       <View style={styles.headerWrap}>
-        <Text style={styles.h1}>在庫管理</Text>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.h1}>在庫管理</Text>
+          <View style={styles.headerUser}>
+            <Text style={styles.subtitle}>{user.name}</Text>
+            <Pressable
+              onPress={handleLogout}
+              style={({ pressed }) => [
+                styles.smallButton,
+                pressed && styles.smallButtonPressed,
+              ]}
+            >
+              <Text style={styles.smallButtonText}>ログアウト</Text>
+            </Pressable>
+          </View>
+        </View>
         <Text style={styles.subtitle}>API: {apiBaseUrl}</Text>
       </View>
 
       <View style={styles.tabBar}>
         <TabButton label="在庫一覧" active={tab === "list"} onPress={() => setTab("list")} />
-        <TabButton label="カテゴリ追加" active={tab === "category"} onPress={() => setTab("category")} />
-        <TabButton label="物品追加" active={tab === "item"} onPress={() => setTab("item")} />
+        <TabButton label="カテゴリ" active={tab === "category"} onPress={() => setTab("category")} />
+        <TabButton label="物品" active={tab === "item"} onPress={() => setTab("item")} />
+        <TabButton label="保管場所" active={tab === "storage"} onPress={() => setTab("storage")} />
       </View>
 
       {tab === "list" && (
@@ -331,37 +422,83 @@ export default function App() {
                 </Pressable>
               </View>
             </View>
+            <View style={styles.chipRow}>
+              <Pressable
+                onPress={() => setListFilter("all")}
+                style={[styles.chip, listFilter === "all" && styles.chipSelected]}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    listFilter === "all" && styles.chipTextSelected,
+                  ]}
+                >
+                  すべて
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setListFilter("out_of_stock")}
+                style={[
+                  styles.chip,
+                  listFilter === "out_of_stock" && styles.chipSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    listFilter === "out_of_stock" && styles.chipTextSelected,
+                  ]}
+                >
+                  在庫切れのみ
+                </Text>
+              </Pressable>
+            </View>
             {loading ? (
               <ActivityIndicator />
             ) : items.length === 0 ? (
               <Text style={styles.muted}>物品がありません</Text>
-            ) : (
-              <View style={styles.groupList}>
-                {categories.map((c) => (
-                  <CategoryGroup
-                    key={c.id}
-                    title={c.name}
-                    items={itemsByCategory.map.get(c.id) ?? []}
-                    onIncrement={handleIncrement}
-                    onDecrement={handleDecrement}
-                    onOpenHistory={openHistory}
-                    onEditBarcode={openBarcodeScannerFor}
-                    onMoveCategory={setCategoryEditItem}
-                  />
-                ))}
-                {itemsByCategory.orphan.length > 0 && (
-                  <CategoryGroup
-                    title="(カテゴリ未設定)"
-                    items={itemsByCategory.orphan}
-                    onIncrement={handleIncrement}
-                    onDecrement={handleDecrement}
-                    onOpenHistory={openHistory}
-                    onEditBarcode={openBarcodeScannerFor}
-                    onMoveCategory={setCategoryEditItem}
-                  />
-                )}
-              </View>
-            )}
+            ) : (() => {
+              const visibleCategories = categories.filter(
+                (c) =>
+                  listFilter !== "out_of_stock" ||
+                  (itemsByCategory.map.get(c.id)?.length ?? 0) > 0,
+              );
+              const hasAny =
+                visibleCategories.length > 0 ||
+                itemsByCategory.orphan.length > 0;
+              if (!hasAny) {
+                return (
+                  <Text style={styles.muted}>在庫切れの物品はありません</Text>
+                );
+              }
+              return (
+                <View style={styles.groupList}>
+                  {visibleCategories.map((c) => (
+                    <CategoryGroup
+                      key={c.id}
+                      title={c.name}
+                      items={itemsByCategory.map.get(c.id) ?? []}
+                      onIncrement={handleIncrement}
+                      onDecrement={handleDecrement}
+                      onOpenHistory={openHistory}
+                      onEditBarcode={openBarcodeScannerFor}
+                      onMoveCategory={setCategoryEditItem}
+                    />
+                  ))}
+                  {itemsByCategory.orphan.length > 0 && (
+                    <CategoryGroup
+                      title="(カテゴリ未設定)"
+                      items={itemsByCategory.orphan}
+                      onIncrement={handleIncrement}
+                      onDecrement={handleDecrement}
+                      onOpenHistory={openHistory}
+                      onEditBarcode={openBarcodeScannerFor}
+                      onMoveCategory={setCategoryEditItem}
+                    />
+                  )}
+                </View>
+              );
+            })()}
           </View>
         </ScrollView>
       )}
@@ -458,6 +595,87 @@ export default function App() {
             >
               <Text style={styles.buttonText}>追加</Text>
             </Pressable>
+          </View>
+        </ScrollView>
+      )}
+
+      {tab === "storage" && (
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <View style={styles.card}>
+            <Text style={styles.h2}>保管場所追加</Text>
+            <Text style={styles.label}>カテゴリ</Text>
+            <View style={styles.chipRow}>
+              {categories.length === 0 ? (
+                <Text style={styles.muted}>(カテゴリ未登録)</Text>
+              ) : (
+                categories.map((c) => {
+                  const selected = c.id === storageCategoryId;
+                  return (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => setStorageCategoryId(c.id)}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {c.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })
+              )}
+            </View>
+            <Text style={styles.label}>保管場所 (自由記述)</Text>
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              value={storageDescription}
+              onChangeText={setStorageDescription}
+              placeholder="例: 2F 倉庫 棚A-3"
+              placeholderTextColor="#9ca3af"
+              multiline
+            />
+            <Pressable
+              style={({ pressed }) => [
+                styles.button,
+                (!storageDescription.trim() ||
+                  storageCategoryId == null ||
+                  pressed) &&
+                  styles.buttonPressed,
+              ]}
+              onPress={handleAddStorage}
+              disabled={!storageDescription.trim() || storageCategoryId == null}
+            >
+              <Text style={styles.buttonText}>追加</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.h2}>保管場所一覧</Text>
+            {loading ? (
+              <ActivityIndicator />
+            ) : storageLocations.length === 0 ? (
+              <Text style={styles.muted}>保管場所がありません</Text>
+            ) : (
+              <View>
+                {storageLocations.map((sl, idx) => (
+                  <View key={sl.id}>
+                    {idx > 0 && <View style={styles.separator} />}
+                    <View style={styles.storageRow}>
+                      <Text style={styles.storageDesc}>{sl.description}</Text>
+                      <View style={styles.storageBadge}>
+                        <Text style={styles.storageBadgeText}>
+                          {sl.category?.name ?? "(未設定)"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
       )}
@@ -674,6 +892,72 @@ function ScannerModal({
   );
 }
 
+function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const u = await api.login(email.trim(), password);
+      onLoggedIn(u);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const disabled = submitting || !email.trim() || !password;
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <StatusBar style="auto" />
+      <View style={styles.loginWrap}>
+        <View style={styles.card}>
+          <Text style={styles.h1}>在庫管理 ログイン</Text>
+          {error && <Text style={styles.loginError}>{error}</Text>}
+          <Text style={styles.label}>メールアドレス</Text>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            placeholder="admin@example.com"
+            placeholderTextColor="#9ca3af"
+          />
+          <Text style={styles.label}>パスワード</Text>
+          <TextInput
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            placeholder="パスワード"
+            placeholderTextColor="#9ca3af"
+          />
+          <Pressable
+            style={({ pressed }) => [
+              styles.button,
+              (disabled || pressed) && styles.buttonPressed,
+            ]}
+            onPress={submit}
+            disabled={disabled}
+          >
+            <Text style={styles.buttonText}>
+              {submitting ? "ログイン中..." : "ログイン"}
+            </Text>
+          </Pressable>
+          <Text style={styles.subtitle}>API: {apiBaseUrl}</Text>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
 function TabButton({
   label,
   active,
@@ -811,9 +1095,43 @@ function CategoryGroup({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#f8fafc" },
   headerWrap: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerUser: { flexDirection: "row", alignItems: "center", gap: 8 },
   scroll: { padding: 16, gap: 16 },
   h1: { fontSize: 24, fontWeight: "700", color: "#0f172a" },
   subtitle: { fontSize: 12, color: "#64748b", marginTop: 2 },
+  loginWrap: { flex: 1, justifyContent: "center", padding: 16 },
+  loginError: {
+    fontSize: 13,
+    color: "#b91c1c",
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  inputMultiline: { minHeight: 64, textAlignVertical: "top" },
+  storageRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  storageDesc: { flexShrink: 1, fontSize: 14, color: "#0f172a" },
+  storageBadge: {
+    flexShrink: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "#f1f5f9",
+  },
+  storageBadgeText: { fontSize: 11, color: "#475569" },
   h2: { fontSize: 16, fontWeight: "600", color: "#0f172a" },
   tabBar: {
     flexDirection: "row",
@@ -903,10 +1221,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    flexWrap: "wrap",
+    rowGap: 8,
+    columnGap: 12,
   },
-  rowLeft: { flexShrink: 1, flexGrow: 1 },
-  rowRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // 名前側に最小幅を確保し、ボタン群が増えても潰れず読めるようにする。
+  // 幅が足りなければ row の flexWrap でボタン群が次行へ折り返す。
+  rowLeft: { flexShrink: 1, flexGrow: 1, minWidth: 150 },
+  rowRight: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { fontSize: 15, fontWeight: "500", color: "#0f172a" },
   barcodeLine: { fontSize: 11, marginTop: 2, lineHeight: 14 },
   barcodeIcon: { color: "#94a3b8", letterSpacing: -1 },

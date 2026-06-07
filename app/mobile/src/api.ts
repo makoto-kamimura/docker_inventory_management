@@ -44,6 +44,7 @@ export type Item = {
 
 export type ScanResult =
   | { action: "incremented"; item: Item }
+  | { action: "needs_amount"; item: Item }
   | { action: "not_found"; barcode: string };
 
 export type ItemHistory = {
@@ -51,6 +52,7 @@ export type ItemHistory = {
   item_id: number;
   user_id?: number | null;
   change: number;
+  amount?: number | null;
   changed_at: string;
   user?: { id: number; name: string } | null;
 };
@@ -174,15 +176,22 @@ export const api = {
         data.message ?? data.error ?? `${res.status} ${res.statusText}`,
       );
     }
-    const data = (await res.json()) as { action: "incremented"; item: Item };
+    // 200: action は "incremented" (在庫>0 を加算済) か "needs_amount" (在庫0で未加算)
+    const data = (await res.json()) as
+      | { action: "incremented"; item: Item }
+      | { action: "needs_amount"; item: Item };
     return data;
   },
 
   decrementItem: (id: number) =>
     request<Item>(`/api/items/${id}/decrement`, { method: "PUT" }),
 
-  incrementItem: (id: number) =>
-    request<Item>(`/api/items/${id}/increment`, { method: "PUT" }),
+  // amount は在庫0からの補充時のみ渡す (任意)。null/未指定なら金額なしで +1。
+  incrementItem: (id: number, amount?: number | null) =>
+    request<Item>(`/api/items/${id}/increment`, {
+      method: "PUT",
+      ...(amount != null ? { body: JSON.stringify({ amount }) } : {}),
+    }),
 
   setItemBarcode: (id: number, barcode: string | null) =>
     request<Item>(`/api/items/${id}/barcode`, {

@@ -64,12 +64,13 @@ docker_inventory_management/
 | F-07  | Web UI          | ログイン / 在庫一覧 / カテゴリ追加 / 物品追加 / 保管場所追加 / 増減アイコンボタン (`＋`/`−`) / カテゴリ移動 Modal / 履歴 Modal / 分析タブ (横棒グラフ) / ログアウト | 実装済 |
 | F-08  | モバイル UI     | Web と同等の機能 (保管場所追加・ログインを含む) + プルリフレッシュ + バーコードスキャン | 実装済 |
 | F-09  | 認証 / 認可     | トークン (Bearer) 認証。`POST /api/login` でトークン発行、全 API に付与必須。失効は `POST /api/logout` | 実装済 (シードユーザーのみ。認可ロールは無し) |
-| F-10  | 在庫増 (+1)     | `PUT /api/items/{item}/increment` — 1個追加 + 履歴 `+1` 記録      | 実装済 |
+| F-10  | 在庫増 (+1)     | `PUT /api/items/{item}/increment` — 1個追加 + 履歴 `+1` 記録 (在庫0からの補充は金額入力 → 履歴 `amount`) | 実装済 |
 | F-11  | バーコードスキャン | `POST /api/items/scan` — barcode 一致なら +1 して `{action:"incremented",item}` / 未登録なら 404 + `{action:"not_found",barcode}` を返す。モバイルは `expo-camera` の `CameraView` で読み取り | 実装済 (モバイルのみ) |
 | F-12  | 日次分析        | `GET /api/analytics/daily` — `changed_at` を日付集計し `{date,plus,minus,count}` を返却。Web の「分析」タブでダイバージング横棒として可視化 | 実装済 (Web のみ) |
 | F-13  | カテゴリ変更    | `PUT /api/items/{item}/category` — 登録済み物品の所属カテゴリを変更。Web は一覧の「移動」ボタンから select Modal、モバイルは「移動」ボタンから chip 選択 Modal | 実装済 |
 | F-14  | 在庫切れ絞り込み | 在庫一覧で「すべて / 在庫切れのみ (`stock<=0`)」を切替。Web / モバイル両対応 | 実装済 |
 | F-15  | 保管場所管理    | `GET/POST /api/storage-locations` — カテゴリに紐づく自由記述 (`description`) の保管場所を登録・一覧。Web/モバイルに「保管場所追加」タブ | 実装済 |
+| F-16  | 補充金額の記録  | **在庫0の物品が +1 される時のみ**金額入力モーダルを表示 (+1 ボタン / バーコード両方)。金額は任意で `item_histories.amount` に記録、履歴 Modal に `¥` 表示。在庫>0 の +1 は従来どおり即時 | 実装済 |
 
 ## 4. データモデル
 
@@ -79,7 +80,7 @@ docker_inventory_management/
 | ----------------- | --------------------------------------------------------------------------------------- |
 | `categories`      | `id`, `name` (unique), timestamps                                                       |
 | `items`           | `id`, `name`, `category_id` (FK→categories, cascade), `barcode` (string, nullable, **unique**), `stock` (int, default 0), ts |
-| `item_histories`  | `id`, `item_id` (FK→items, cascade), `user_id` (FK→users, nullable, nullOnDelete — 更新者), `change` (int 増減数), `changed_at`, timestamps |
+| `item_histories`  | `id`, `item_id` (FK→items, cascade), `user_id` (FK→users, nullable, nullOnDelete — 更新者), `change` (int 増減数), `amount` (unsignedInt, nullable — 在庫0からの補充時の金額/円), `changed_at`, timestamps |
 | `storage_locations` | `id`, `category_id` (FK→categories, cascade), `description` (text 自由記述), timestamps |
 | `api_tokens`      | `id`, `user_id` (FK→users, cascade), `name` (nullable), `token` (SHA-256 ハッシュ, unique), `last_used_at`, timestamps |
 
@@ -110,9 +111,9 @@ Eloquent: `Item belongsTo Category` / `Item hasMany ItemHistory` / `ItemHistory 
 | POST   | `/api/categories`                   | カテゴリ作成 (`name` 必須/unique) | 201 / 422 |
 | GET    | `/api/items`                        | Item 一覧 (category 同梱)  | 200             |
 | POST   | `/api/items`                        | Item 作成 (`name`/`category_id`/`stock` 必須、`barcode?` 任意 unique)。初期在庫>0なら履歴追加 | 201 / 422 |
-| POST   | `/api/items/scan`                   | `{barcode}` を受け取り、Item 一致なら `+1` + 履歴、未一致は `{action:"not_found",barcode}` | 200 / 404 / 422 |
+| POST   | `/api/items/scan`                   | `{barcode}` を受け取る。在庫>0 の一致は `+1` + 履歴 (`incremented`)、**在庫0 の一致は加算せず `needs_amount`** (フロントが金額モーダル→increment)、未一致は `not_found` | 200 / 404 / 422 |
 | PUT    | `/api/items/{item}/decrement`       | 在庫 -1 + 履歴追加         | 200 / 404 / 409 |
-| PUT    | `/api/items/{item}/increment`       | 在庫 +1 + 履歴追加 (上限なし) | 200 / 404      |
+| PUT    | `/api/items/{item}/increment`       | 在庫 +1 + 履歴追加。`amount?` (nullable int, 円) を渡すと履歴に金額を記録 (在庫0からの補充時のみフロントが送る) | 200 / 404 / 422 |
 | PUT    | `/api/items/{item}/barcode`         | バーコード設定/解除 (`barcode?` nullable unique)。Item 同梱で返却 | 200 / 404 / 422 |
 | PUT    | `/api/items/{item}/category`        | 所属カテゴリ変更 (`category_id` 必須/`exists:categories,id`)。Item を `category` 同梱で返却 | 200 / 404 / 422 |
 | GET    | `/api/items/{item}/histories`       | Item の履歴 (新しい順)     | 200 / 404      |
@@ -124,14 +125,18 @@ Eloquent: `Item belongsTo Category` / `Item hasMany ItemHistory` / `ItemHistory 
 ### 5.1 `POST /api/items/scan` のレスポンス契約
 
 ```jsonc
-// 既存バーコード (200)
+// 既存バーコード・在庫>0 (200) → サーバ側で +1 済
 { "action": "incremented", "item": { "id": 5, "name": "...", "barcode": "...", "stock": 2, "category": {...} } }
+
+// 既存バーコード・在庫0 (200) → 未加算。フロントが金額モーダルを出し、確定後に
+//   PUT /api/items/{id}/increment (amount 任意) を呼ぶ
+{ "action": "needs_amount", "item": { "id": 5, "name": "...", "stock": 0, "category": {...} } }
 
 // 未登録バーコード (404)
 { "action": "not_found", "barcode": "4901234567890" }
 ```
 
-クライアントは HTTP ステータスではなく `action` で分岐すること (404 でもエラー扱いにはしない設計)。バリデーション失敗は通常通り 422。
+クライアントは HTTP ステータスではなく `action` で分岐すること (404 でもエラー扱いにはしない設計)。バリデーション失敗は通常通り 422。**在庫0からの補充は金額入力を挟むため、scan / +1 ボタンとも `needs_amount` 相当の分岐でモーダルを表示する。**
 
 ## 6. 外部インターフェース
 

@@ -88,6 +88,9 @@ function InventoryApp({
   // カテゴリ変更対象 (null なら閉じている)
   const [categoryEditItem, setCategoryEditItem] = useState<Item | null>(null);
 
+  // 在庫0からの補充時に金額を入力させる対象 (null なら閉じている)
+  const [amountTarget, setAmountTarget] = useState<Item | null>(null);
+
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanProcessing, setScanProcessing] = useState(false);
   // CameraView は 1 フレームごとに onBarcodeScanned を発火する (~30fps)。
@@ -238,7 +241,7 @@ function InventoryApp({
           );
           return;
         }
-        // 通常スキャン (+1 or 未登録)
+        // 通常スキャン (+1 / 在庫0で金額入力 / 未登録)
         const result = await api.scanBarcode(barcode);
         setScannerOpen(false);
         if (result.action === "incremented") {
@@ -247,6 +250,9 @@ function InventoryApp({
             "在庫を +1 しました",
             `${result.item.name} (在庫: ${result.item.stock})`,
           );
+        } else if (result.action === "needs_amount") {
+          // 在庫切れからの補充: 金額モーダルを出してから +1 する
+          setAmountTarget(result.item);
         } else {
           setPendingBarcode(result.barcode);
           setItemName("");
@@ -315,9 +321,9 @@ function InventoryApp({
     }
   };
 
-  const handleIncrement = async (item: Item) => {
+  const doIncrement = async (item: Item, amount: number | null = null) => {
     try {
-      await api.incrementItem(item.id);
+      await api.incrementItem(item.id, amount);
       await reload();
       if (historyItem?.id === item.id) {
         await openHistory(item);
@@ -325,6 +331,20 @@ function InventoryApp({
     } catch (e) {
       Alert.alert("在庫増失敗", e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const handleIncrement = (item: Item) => {
+    // 在庫0からの補充だけ金額入力モーダルを挟む。在庫>0 は従来どおり即時 +1。
+    if (item.stock <= 0) {
+      setAmountTarget(item);
+      return;
+    }
+    void doIncrement(item, null);
+  };
+
+  const handleConfirmAmount = async (item: Item, amount: number | null) => {
+    setAmountTarget(null);
+    await doIncrement(item, amount);
   };
 
   const handleMoveCategory = async (item: Item, categoryId: number) => {
@@ -680,6 +700,14 @@ function InventoryApp({
         </ScrollView>
       )}
 
+      {amountTarget && (
+        <AmountModal
+          item={amountTarget}
+          onClose={() => setAmountTarget(null)}
+          onConfirm={handleConfirmAmount}
+        />
+      )}
+
       <ScannerModal
         visible={scannerOpen}
         onClose={() => {
@@ -777,9 +805,16 @@ function InventoryApp({
                 ItemSeparatorComponent={() => <View style={styles.separator} />}
                 renderItem={({ item: h }) => (
                   <View style={styles.historyRow}>
-                    <Text style={styles.historyChange}>
-                      {h.change > 0 ? `+${h.change}` : String(h.change)}
-                    </Text>
+                    <View style={styles.historyLeft}>
+                      <Text style={styles.historyChange}>
+                        {h.change > 0 ? `+${h.change}` : String(h.change)}
+                      </Text>
+                      {h.amount != null && (
+                        <Text style={styles.historyAmount}>
+                          ¥{h.amount.toLocaleString("ja-JP")}
+                        </Text>
+                      )}
+                    </View>
                     <View style={styles.historyMeta}>
                       <Text style={styles.muted}>
                         {new Date(h.changed_at).toLocaleString("ja-JP")}
@@ -960,6 +995,81 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+function AmountModal({
+  item,
+  onClose,
+  onConfirm,
+}: {
+  item: Item;
+  onClose: () => void;
+  onConfirm: (item: Item, amount: number | null) => void | Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (amount: number | null) => {
+    setSaving(true);
+    try {
+      await onConfirm(item, amount);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const parsed = value.trim() === "" ? null : Math.floor(Number(value));
+  const invalid = parsed != null && (!isFinite(parsed) || parsed < 0);
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={() => {}}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.h2}>{item.name} の補充 (+1)</Text>
+            <Pressable onPress={onClose}>
+              <Text style={styles.link}>閉じる</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.muted}>
+            在庫切れからの補充です。金額 (円) を入力してください。未入力でも追加できます。
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={value}
+            onChangeText={setValue}
+            keyboardType="number-pad"
+            placeholder="例: 1200"
+            placeholderTextColor="#9ca3af"
+            autoFocus
+          />
+          <View style={styles.amountActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.smallButton,
+                (saving || pressed) && styles.smallButtonPressed,
+              ]}
+              onPress={() => submit(null)}
+              disabled={saving}
+            >
+              <Text style={styles.smallButtonText}>金額なしで +1</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.button,
+                styles.amountConfirm,
+                (saving || invalid || pressed) && styles.buttonPressed,
+              ]}
+              onPress={() => submit(parsed)}
+              disabled={saving || invalid}
+            >
+              <Text style={styles.buttonText}>+1 して記録</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1359,4 +1469,18 @@ const styles = StyleSheet.create({
   },
   historyMeta: { alignItems: "flex-end" },
   historyUser: { fontSize: 11, color: "#94a3b8" },
+  historyLeft: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  historyAmount: {
+    fontSize: 12,
+    color: "#059669",
+    fontVariant: ["tabular-nums"],
+  },
+  amountActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  amountConfirm: { paddingHorizontal: 16 },
 });

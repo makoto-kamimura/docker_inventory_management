@@ -97,6 +97,8 @@ function InventoryApp({
 
   const [barcodeEditTarget, setBarcodeEditTarget] = useState<Item | null>(null);
   const [categoryEditTarget, setCategoryEditTarget] = useState<Item | null>(null);
+  // 在庫0からの補充時に金額を入力させる対象 (null なら閉じている)
+  const [amountTarget, setAmountTarget] = useState<Item | null>(null);
 
   const [listFilter, setListFilter] = useState<"all" | "out_of_stock">("all");
 
@@ -244,9 +246,9 @@ function InventoryApp({
     }
   };
 
-  const handleIncrement = async (item: Item) => {
+  const doIncrement = async (item: Item, amount: number | null) => {
     try {
-      await api.incrementItem(item.id);
+      await api.incrementItem(item.id, amount);
       await reload();
       if (historyTarget?.id === item.id) {
         await openHistory(item);
@@ -254,6 +256,20 @@ function InventoryApp({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const handleIncrement = (item: Item) => {
+    // 在庫0からの補充だけ金額入力モーダルを挟む。在庫>0 は従来どおり即時 +1。
+    if (item.stock <= 0) {
+      setAmountTarget(item);
+      return;
+    }
+    void doIncrement(item, null);
+  };
+
+  const handleConfirmAmount = async (item: Item, amount: number | null) => {
+    setAmountTarget(null);
+    await doIncrement(item, amount);
   };
 
   const handleSaveBarcode = async (item: Item, barcode: string | null) => {
@@ -631,6 +647,14 @@ function InventoryApp({
         />
       )}
 
+      {amountTarget && (
+        <AmountModal
+          item={amountTarget}
+          onClose={() => setAmountTarget(null)}
+          onConfirm={handleConfirmAmount}
+        />
+      )}
+
       {historyTarget && (
         <div
           className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
@@ -663,8 +687,15 @@ function InventoryApp({
                     key={h.id}
                     className="flex items-center justify-between gap-3 border-b border-zinc-100 py-1.5 dark:border-zinc-800"
                   >
-                    <span className="tabular-nums">
-                      {h.change > 0 ? `+${h.change}` : h.change}
+                    <span className="flex items-baseline gap-2">
+                      <span className="tabular-nums">
+                        {h.change > 0 ? `+${h.change}` : h.change}
+                      </span>
+                      {h.amount != null && (
+                        <span className="text-xs text-emerald-600 tabular-nums dark:text-emerald-400">
+                          ¥{h.amount.toLocaleString("ja-JP")}
+                        </span>
+                      )}
                     </span>
                     <span className="flex flex-col items-end text-right leading-tight">
                       <span className="text-zinc-500">
@@ -1049,6 +1080,97 @@ function CategoryEditModal({
             className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AmountModal({
+  item,
+  onClose,
+  onConfirm,
+}: {
+  item: Item;
+  onClose: () => void;
+  onConfirm: (item: Item, amount: number | null) => Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (amount: number | null) => {
+    setSaving(true);
+    try {
+      await onConfirm(item, amount);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const parsed = value.trim() === "" ? null : Math.floor(Number(value));
+  const invalid = parsed != null && (!Number.isFinite(parsed) || parsed < 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">{item.name} の補充 (+1)</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          >
+            ×
+          </button>
+        </div>
+        <p className="text-sm text-zinc-500">
+          在庫切れからの補充です。金額 (円) を入力してください。未入力でも追加できます。
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-zinc-500">¥</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="例: 1200"
+            className="w-full rounded border border-zinc-300 px-3 py-2 tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
+            autoFocus
+          />
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(null)}
+            disabled={saving}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            金額なしで +1
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(parsed)}
+            disabled={saving || invalid}
+            className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            +1 して記録
           </button>
         </div>
       </div>

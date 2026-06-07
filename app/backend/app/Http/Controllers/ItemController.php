@@ -45,10 +45,19 @@ class ItemController extends Controller
         return $item->fresh('category');
     }
 
-    public function increment(Item $item)
+    public function increment(Item $item, Request $request)
     {
+        // 在庫0からの補充時のみフロントが amount を送る (任意)。
+        $data = $request->validate([
+            'amount' => 'nullable|integer|min:0',
+        ]);
+
         $item->increment('stock');
-        $item->histories()->create(['change' => 1, 'user_id' => auth()->id()]);
+        $item->histories()->create([
+            'change' => 1,
+            'amount' => $data['amount'] ?? null,
+            'user_id' => auth()->id(),
+        ]);
 
         return $item->fresh('category');
     }
@@ -96,6 +105,15 @@ class ItemController extends Controller
                 'action' => 'not_found',
                 'barcode' => $data['barcode'],
             ], 404);
+        }
+
+        // 在庫0からの補充は金額入力が必要なので、ここでは加算せずフロントに委ねる。
+        // フロントは金額モーダルを出してから PUT /items/{item}/increment を呼ぶ。
+        if ($item->stock <= 0) {
+            return response()->json([
+                'action' => 'needs_amount',
+                'item' => $item->load('category'),
+            ]);
         }
 
         $item->increment('stock');

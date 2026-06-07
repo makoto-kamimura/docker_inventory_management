@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ItemHistory extends Model
 {
-    protected $fillable = ['item_id', 'user_id', 'change', 'changed_at'];
+    protected $fillable = ['item_id', 'user_id', 'change', 'amount', 'changed_at'];
 
     public function item(): BelongsTo
     {

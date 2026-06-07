@@ -9,7 +9,7 @@
 - バックエンド: Laravel 12 (PHP 8.2) を REST API として提供
 - フロントエンド: Web (Next.js 16) とモバイル (Expo / React Native 0.81) の 2 系統
 - データストア: MySQL 8.0 (Docker コンテナで管理、phpMyAdmin 同梱)
-- 実行基盤: Backend / DB / phpMyAdmin / **Web** を Docker Compose で一括起動。モバイル (Expo) はホスト側 `npx expo start` で別途起動
+- 実行基盤: Backend / DB / phpMyAdmin / **Web** を Docker Compose で一括起動。モバイル (Expo) は開発時はホスト側 `npx expo start`、本番は **EAS Build** でスタンドアロンアプリ化 (Metro 不要、[operation.md §5.5](operation.md))
 - 追加機能: モバイルからの **バーコードスキャン** で在庫 +1、未登録なら物品追加フォームへ遷移
 - 認証: **トークン (Bearer) 認証必須**。ログイン (`POST /api/login`) でトークンを発行し、以降の全 API に付与。ユーザーはシードで作成 (画面からの新規登録は無し)
 - 保管場所: **カテゴリに紐づく自由記述の保管場所** を専用タブから登録・一覧 (物品とは未紐付け)

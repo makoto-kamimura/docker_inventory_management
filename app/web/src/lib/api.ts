@@ -39,10 +39,12 @@ export type StorageLocation = {
 export type ItemHistory = {
   id: number;
   item_id: number;
+  user_id?: number | null;
   change: number;
   changed_at: string;
   created_at?: string;
   updated_at?: string;
+  user?: { id: number; name: string } | null;
 };
 
 export type AnalyticsPeriod = "daily" | "monthly";

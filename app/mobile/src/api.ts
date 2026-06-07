@@ -49,8 +49,10 @@ export type ScanResult =
 export type ItemHistory = {
   id: number;
   item_id: number;
+  user_id?: number | null;
   change: number;
   changed_at: string;
+  user?: { id: number; name: string } | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

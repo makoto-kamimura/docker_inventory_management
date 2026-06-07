@@ -60,7 +60,7 @@ docker_inventory_management/
 | F-03  | 在庫減算 (-1)   | `PUT /api/items/{item}/decrement` — 1個払い出し + 履歴記録 + 在庫0は 409 | 実装済 |
 | F-04  | カテゴリ一覧    | `GET /api/categories`                                             | 実装済 |
 | F-05  | カテゴリ追加    | `POST /api/categories` — `name` (unique)                          | 実装済 |
-| F-06  | 在庫履歴閲覧    | `GET /api/items/{item}/histories` — 増減ログ取得                   | 実装済 |
+| F-06  | 在庫履歴閲覧    | `GET /api/items/{item}/histories` — 増減ログ取得 (**更新者 `user` 同梱**)。Web/モバイルの履歴 Modal に日時+ユーザー名を表示 | 実装済 |
 | F-07  | Web UI          | ログイン / 在庫一覧 / カテゴリ追加 / 物品追加 / 保管場所追加 / 増減アイコンボタン (`＋`/`−`) / カテゴリ移動 Modal / 履歴 Modal / 分析タブ (横棒グラフ) / ログアウト | 実装済 |
 | F-08  | モバイル UI     | Web と同等の機能 (保管場所追加・ログインを含む) + プルリフレッシュ + バーコードスキャン | 実装済 |
 | F-09  | 認証 / 認可     | トークン (Bearer) 認証。`POST /api/login` でトークン発行、全 API に付与必須。失効は `POST /api/logout` | 実装済 (シードユーザーのみ。認可ロールは無し) |
@@ -79,11 +79,13 @@ docker_inventory_management/
 | ----------------- | --------------------------------------------------------------------------------------- |
 | `categories`      | `id`, `name` (unique), timestamps                                                       |
 | `items`           | `id`, `name`, `category_id` (FK→categories, cascade), `barcode` (string, nullable, **unique**), `stock` (int, default 0), ts |
-| `item_histories`  | `id`, `item_id` (FK→items, cascade), `change` (int 増減数), `changed_at`, timestamps    |
+| `item_histories`  | `id`, `item_id` (FK→items, cascade), `user_id` (FK→users, nullable, nullOnDelete — 更新者), `change` (int 増減数), `changed_at`, timestamps |
 | `storage_locations` | `id`, `category_id` (FK→categories, cascade), `description` (text 自由記述), timestamps |
 | `api_tokens`      | `id`, `user_id` (FK→users, cascade), `name` (nullable), `token` (SHA-256 ハッシュ, unique), `last_used_at`, timestamps |
 
-Eloquent: `Item belongsTo Category` / `Item hasMany ItemHistory` / `Category hasMany Item` / `Category hasMany StorageLocation` / `StorageLocation belongsTo Category` / `User hasMany ApiToken`。
+Eloquent: `Item belongsTo Category` / `Item hasMany ItemHistory` / `ItemHistory belongsTo User` / `Category hasMany Item` / `Category hasMany StorageLocation` / `StorageLocation belongsTo Category` / `User hasMany ApiToken`。
+
+在庫を増減する操作 (作成時の初回在庫 / `increment` / `decrement` / `scan`) の履歴には、認証中ユーザーの `user_id` を記録する。`GET /api/items/{item}/histories` は `user:id,name` を同梱して返す (既存行や未認証ぶんは `user: null`)。
 
 `api_tokens.token` には平文ではなく SHA-256 ハッシュを保存 (平文はログイン応答で一度だけ返す)。`AuthenticateToken` ミドルウェア (`auth.token` エイリアス) が `Authorization: Bearer <token>` を検証して認証する。Sanctum は使わず依存追加なしの軽量実装。
 

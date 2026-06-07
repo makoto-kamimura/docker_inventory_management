@@ -24,7 +24,10 @@ class ItemController extends Controller
         $item = Item::create($data);
 
         if ($item->stock > 0) {
-            $item->histories()->create(['change' => $item->stock]);
+            $item->histories()->create([
+                'change' => $item->stock,
+                'user_id' => auth()->id(),
+            ]);
         }
 
         return $item->load('category');
@@ -37,7 +40,7 @@ class ItemController extends Controller
         }
 
         $item->decrement('stock');
-        $item->histories()->create(['change' => -1]);
+        $item->histories()->create(['change' => -1, 'user_id' => auth()->id()]);
 
         return $item->fresh('category');
     }
@@ -45,14 +48,14 @@ class ItemController extends Controller
     public function increment(Item $item)
     {
         $item->increment('stock');
-        $item->histories()->create(['change' => 1]);
+        $item->histories()->create(['change' => 1, 'user_id' => auth()->id()]);
 
         return $item->fresh('category');
     }
 
     public function histories(Item $item)
     {
-        return $item->histories()->orderByDesc('id')->get();
+        return $item->histories()->with('user:id,name')->orderByDesc('id')->get();
     }
 
     public function updateBarcode(Item $item, Request $request)
@@ -96,7 +99,7 @@ class ItemController extends Controller
         }
 
         $item->increment('stock');
-        $item->histories()->create(['change' => 1]);
+        $item->histories()->create(['change' => 1, 'user_id' => auth()->id()]);
 
         return response()->json([
             'action' => 'incremented',

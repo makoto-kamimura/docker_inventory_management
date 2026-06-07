@@ -780,9 +780,14 @@ function InventoryApp({
                     <Text style={styles.historyChange}>
                       {h.change > 0 ? `+${h.change}` : String(h.change)}
                     </Text>
-                    <Text style={styles.muted}>
-                      {new Date(h.changed_at).toLocaleString("ja-JP")}
-                    </Text>
+                    <View style={styles.historyMeta}>
+                      <Text style={styles.muted}>
+                        {new Date(h.changed_at).toLocaleString("ja-JP")}
+                      </Text>
+                      <Text style={styles.historyUser}>
+                        {h.user?.name ?? "不明"}
+                      </Text>
+                    </View>
                   </View>
                 )}
               />
@@ -1343,6 +1348,7 @@ const styles = StyleSheet.create({
   },
   historyRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 8,
   },
@@ -1351,4 +1357,6 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     color: "#0f172a",
   },
+  historyMeta: { alignItems: "flex-end" },
+  historyUser: { fontSize: 11, color: "#94a3b8" },
 });

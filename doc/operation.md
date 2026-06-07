@@ -116,7 +116,7 @@ curl -X POST http://localhost:8000/api/storage-locations \
 # 払い出し (-1)
 curl -X PUT http://localhost:8000/api/items/1/decrement -H "Authorization: Bearer $TOKEN"
 
-# 履歴
+# 履歴 (各レコードに更新者 user:{id,name} が同梱される)
 curl http://localhost:8000/api/items/1/histories -H "Authorization: Bearer $TOKEN"
 
 # phpMyAdmin

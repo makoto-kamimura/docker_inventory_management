@@ -661,13 +661,18 @@ function InventoryApp({
                 {histories.map((h) => (
                   <li
                     key={h.id}
-                    className="flex justify-between border-b border-zinc-100 py-1 dark:border-zinc-800"
+                    className="flex items-center justify-between gap-3 border-b border-zinc-100 py-1.5 dark:border-zinc-800"
                   >
                     <span className="tabular-nums">
                       {h.change > 0 ? `+${h.change}` : h.change}
                     </span>
-                    <span className="text-zinc-500">
-                      {new Date(h.changed_at).toLocaleString("ja-JP")}
+                    <span className="flex flex-col items-end text-right leading-tight">
+                      <span className="text-zinc-500">
+                        {new Date(h.changed_at).toLocaleString("ja-JP")}
+                      </span>
+                      <span className="text-xs text-zinc-400">
+                        {h.user?.name ?? "不明"}
+                      </span>
                     </span>
                   </li>
                 ))}

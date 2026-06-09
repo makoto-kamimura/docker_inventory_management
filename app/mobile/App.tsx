@@ -11,7 +11,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -498,6 +500,7 @@ function InventoryApp({
                       key={c.id}
                       title={c.name}
                       items={itemsByCategory.map.get(c.id) ?? []}
+                      showAvgAmount={listFilter === "out_of_stock"}
                       onIncrement={handleIncrement}
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
@@ -509,6 +512,7 @@ function InventoryApp({
                     <CategoryGroup
                       title="(カテゴリ未設定)"
                       items={itemsByCategory.orphan}
+                      showAvgAmount={listFilter === "out_of_stock"}
                       onIncrement={handleIncrement}
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
@@ -1024,51 +1028,61 @@ function AmountModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalCard} onPress={() => {}}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.h2}>{item.name} の補充 (+1)</Text>
-            <Pressable onPress={onClose}>
-              <Text style={styles.link}>閉じる</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.muted}>
-            在庫切れからの補充です。金額 (円) を入力してください。未入力でも追加できます。
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={value}
-            onChangeText={setValue}
-            keyboardType="number-pad"
-            placeholder="例: 1200"
-            placeholderTextColor="#9ca3af"
-            autoFocus
-          />
-          <View style={styles.amountActions}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.smallButton,
-                (saving || pressed) && styles.smallButtonPressed,
-              ]}
-              onPress={() => submit(null)}
-              disabled={saving}
+      <KeyboardAvoidingView
+        style={styles.modalFill}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={onClose}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.amountScrollContent}
             >
-              <Text style={styles.smallButtonText}>金額なしで +1</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                styles.amountConfirm,
-                (saving || invalid || pressed) && styles.buttonPressed,
-              ]}
-              onPress={() => submit(parsed)}
-              disabled={saving || invalid}
-            >
-              <Text style={styles.buttonText}>+1 して記録</Text>
-            </Pressable>
-          </View>
+              <View style={styles.cardHeader}>
+                <Text style={styles.h2}>{item.name} の補充 (+1)</Text>
+                <Pressable onPress={onClose}>
+                  <Text style={styles.link}>閉じる</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.muted}>
+                在庫切れからの補充です。金額 (円) を入力してください。未入力でも追加できます。
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={value}
+                onChangeText={setValue}
+                keyboardType="number-pad"
+                placeholder="例: 1200"
+                placeholderTextColor="#9ca3af"
+                autoFocus
+              />
+              <View style={styles.amountActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.smallButton,
+                    (saving || pressed) && styles.smallButtonPressed,
+                  ]}
+                  onPress={() => submit(null)}
+                  disabled={saving}
+                >
+                  <Text style={styles.smallButtonText}>金額なしで +1</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.button,
+                    styles.amountConfirm,
+                    (saving || invalid || pressed) && styles.buttonPressed,
+                  ]}
+                  onPress={() => submit(parsed)}
+                  disabled={saving || invalid}
+                >
+                  <Text style={styles.buttonText}>+1 して記録</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1101,6 +1115,7 @@ function TabButton({
 function CategoryGroup({
   title,
   items,
+  showAvgAmount = false,
   onIncrement,
   onDecrement,
   onOpenHistory,
@@ -1109,6 +1124,7 @@ function CategoryGroup({
 }: {
   title: string;
   items: Item[];
+  showAvgAmount?: boolean;
   onIncrement: (item: Item) => void;
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
@@ -1146,6 +1162,16 @@ function CategoryGroup({
                       <Text style={styles.barcodeMuted}>  ✎</Text>
                     </Text>
                   </Pressable>
+                  {showAvgAmount &&
+                    item.avg_amount != null &&
+                    Number(item.avg_amount) > 0 && (
+                      <Text style={styles.avgAmountLine}>
+                        平均単価 ¥
+                        {Math.round(Number(item.avg_amount)).toLocaleString(
+                          "ja-JP",
+                        )}
+                      </Text>
+                    )}
                 </View>
                 <View style={styles.rowRight}>
                   <Pressable
@@ -1352,6 +1378,12 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   barcodeMuted: { color: "#94a3b8", fontStyle: "italic" },
+  avgAmountLine: {
+    fontSize: 12,
+    marginTop: 2,
+    color: "#059669",
+    fontVariant: ["tabular-nums"],
+  },
   stock: {
     fontSize: 16,
     fontVariant: ["tabular-nums"],
@@ -1443,12 +1475,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
+  modalFill: { flex: 1 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     padding: 16,
   },
+  amountScrollContent: { gap: 12 },
   modalCard: {
     backgroundColor: "#fff",
     borderRadius: 12,

@@ -9,7 +9,15 @@ class ItemController extends Controller
 {
     public function index()
     {
-        return Item::with('category')->orderBy('name')->get();
+        // 単価 (amount) 入力のある履歴の平均金額を avg_amount として付与する。
+        // SQL の AVG は NULL を無視するため、明示の whereNotNull は冗長だが意図を示す。
+        return Item::with('category')
+            ->withAvg(
+                ['histories as avg_amount' => fn ($q) => $q->whereNotNull('amount')],
+                'amount'
+            )
+            ->orderBy('name')
+            ->get();
     }
 
     public function store(Request $request)

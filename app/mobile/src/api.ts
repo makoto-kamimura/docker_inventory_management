@@ -40,6 +40,9 @@ export type Item = {
   stock: number;
   barcode?: string | null;
   category?: Category;
+  // 過去に単価入力のある履歴の平均金額 (円)。一度も入力がなければ null。
+  // MySQL の DECIMAL は文字列で返るため number | string の両方を許容する。
+  avg_amount?: number | string | null;
 };
 
 export type ScanResult =

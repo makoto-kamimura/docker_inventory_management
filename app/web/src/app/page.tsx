@@ -420,6 +420,7 @@ function InventoryApp({
                       title={c.name}
                       count={list.length}
                       items={list}
+                      showAvgAmount={listFilter === "out_of_stock"}
                       onIncrement={handleIncrement}
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
@@ -433,6 +434,7 @@ function InventoryApp({
                     title="(カテゴリ未設定)"
                     count={itemsByCategory.orphan.length}
                     items={itemsByCategory.orphan}
+                    showAvgAmount={listFilter === "out_of_stock"}
                     onIncrement={handleIncrement}
                     onDecrement={handleDecrement}
                     onOpenHistory={openHistory}
@@ -840,6 +842,7 @@ function CategoryGroup({
   title,
   count,
   items,
+  showAvgAmount = false,
   onIncrement,
   onDecrement,
   onOpenHistory,
@@ -849,6 +852,7 @@ function CategoryGroup({
   title: string;
   count: number;
   items: Item[];
+  showAvgAmount?: boolean;
   onIncrement: (item: Item) => void;
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
@@ -892,6 +896,16 @@ function CategoryGroup({
                   )}
                   <span aria-hidden className="text-zinc-400">✎</span>
                 </button>
+                {showAvgAmount &&
+                  item.avg_amount != null &&
+                  Number(item.avg_amount) > 0 && (
+                    <div className="mt-0.5 text-xs tabular-nums text-emerald-600 dark:text-emerald-400">
+                      平均単価 ¥
+                      {Math.round(Number(item.avg_amount)).toLocaleString(
+                        "ja-JP",
+                      )}
+                    </div>
+                  )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <button

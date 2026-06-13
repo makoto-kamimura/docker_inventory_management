@@ -11,19 +11,7 @@
               "type": "ITEM_NAME"
             }
           ],
-          "samples": [
-            "{ItemName}を減らして",
-            "{ItemName}を払い出して",
-            "{ItemName}を一個減らして",
-            "{ItemName}を一個払い出して",
-            "{ItemName}を一つ減らして",
-            "{ItemName}を一つ払い出して",
-            "{ItemName}の在庫を一個減らして",
-            "{ItemName}の在庫を減らして",
-            "{ItemName}を使った",
-            "{ItemName}一個使った",
-            "{ItemName}を取り出した"
-          ]
+          "samples": ["{ItemName}"]
         },
         {
           "name": "AMAZON.HelpIntent",

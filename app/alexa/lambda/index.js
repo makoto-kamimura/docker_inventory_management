@@ -37,6 +37,12 @@ function findItemByName(items, spokenName) {
 
 // ── ハンドラー ─────────────────────────────────────────────
 
+const ELICIT_ITEM_INTENT = {
+  name: 'DecrementStockIntent',
+  confirmationStatus: 'NONE',
+  slots: { ItemName: { name: 'ItemName', confirmationStatus: 'NONE' } },
+};
+
 const LaunchRequestHandler = {
   canHandle(h) {
     return Alexa.getRequestType(h.requestEnvelope) === 'LaunchRequest';
@@ -44,7 +50,8 @@ const LaunchRequestHandler = {
   handle(h) {
     return h.responseBuilder
       .speak('在庫管理を開きました。何を払い出しますか？')
-      .reprompt('何の在庫を減らしますか？')
+      .reprompt('払い出す品名を教えてください。')
+      .addElicitSlotDirective('ItemName', ELICIT_ITEM_INTENT)
       .getResponse();
   },
 };
@@ -62,7 +69,8 @@ const DecrementStockIntentHandler = {
     if (!itemName) {
       return h.responseBuilder
         .speak('品名が聞き取れませんでした。もう一度おっしゃってください。')
-        .reprompt('何を払い出しますか？')
+        .reprompt('払い出す品名を教えてください。')
+        .addElicitSlotDirective('ItemName')
         .getResponse();
     }
 
@@ -122,8 +130,9 @@ const HelpIntentHandler = {
   },
   handle(h) {
     return h.responseBuilder
-      .speak('在庫を払い出すには「○○を減らして」や「○○を払い出して」とおっしゃってください。')
-      .reprompt('何を払い出しますか？')
+      .speak('品名を言うと在庫を1個払い出します。何を払い出しますか？')
+      .reprompt('払い出す品名を教えてください。')
+      .addElicitSlotDirective('ItemName', ELICIT_ITEM_INTENT)
       .getResponse();
   },
 };

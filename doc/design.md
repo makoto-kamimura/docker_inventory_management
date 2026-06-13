@@ -26,7 +26,13 @@
 │  app/mobile (host)  │     └─────────────────────────┘            │
 │  ＋カメラ/バーコード │                                ┌──────────────────┐
 └─────────────────────┘                                │ phpMyAdmin :8080 │
-                                                       └──────────────────┘
+┌─────────────────────┐     ┌─────────────────────────┐└──────────────────┘
+│ Amazon Alexa        │ ──▶ │  AWS Lambda (Node.js)   │
+│  (音声インターフェース)│     │  app/alexa/lambda/      │
+└─────────────────────┘     └────────────┬────────────┘
+                                          │ Bearer token
+                                          ▼
+                             Laravel API (公開 HTTPS 必須)
 ```
 
 Web / Backend / DB / phpMyAdmin はすべて `platform/docker-compose.yml` で起動する 1 つの compose プロジェクト (`platform`)。モバイルは Expo CLI を経由してホスト側で起動し、ネイティブ機能 (カメラ) を利用する。
@@ -212,6 +218,15 @@ Laravel 側 `.env` は `DB_CONNECTION=mysql / DB_HOST=db / DB_PORT=3306 / DB_DAT
 - **セキュリティ**: アプリ層は**トークン (Bearer) 認証**を全 API に適用済 (`auth.token` ミドルウェア)。ユーザーはシードで作成し、画面からの新規登録は無効。**認可ロール (admin/一般等の権限差) は未実装**。本番は Caddy で自動 TLS + 内部ネットワーク隔離、CORS は同一オリジン構成のため通常チェックされない
 - **テスト**: PHPUnit セットアップのみ。アプリケーションテストは未実装
 - **モバイルカメラ**: `expo-camera` の `CameraView` を利用。iOS Info.plist 用の `NSCameraUsageDescription` は `app.json` の `plugins.expo-camera.cameraPermission` で注入。iOS Simulator は物理カメラに接続されないため、バーコード機能の動作確認は実機でのみ可能
+
+## 7a. Alexa スキル
+
+- **スキル種別**: カスタムスキル (呼び出し名: `在庫管理`)
+- **バックエンド**: AWS Lambda (Node.js 20.x, `ask-sdk-core` + `axios`)
+- **対応操作**: 在庫払い出し -1 (`DecrementStockIntent`)
+- **認証**: Lambda 環境変数に Bearer トークンを保持し、全 API リクエストに付与
+- **品名マッチング**: `GET /api/items` で全件取得 → 完全一致 → 部分一致の順で検索
+- **ファイル**: `app/alexa/` / セットアップ手順: [doc/alexa-setup.md](alexa-setup.md)
 
 ## 8. 採用技術スタック
 

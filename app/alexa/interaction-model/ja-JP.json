@@ -1,0 +1,48 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "在庫管理",
+      "intents": [
+        {
+          "name": "DecrementStockIntent",
+          "slots": [
+            {
+              "name": "ItemName",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "{ItemName}を減らして",
+            "{ItemName}を払い出して",
+            "{ItemName}を一個減らして",
+            "{ItemName}を一個払い出して",
+            "{ItemName}を一つ減らして",
+            "{ItemName}を一つ払い出して",
+            "{ItemName}の在庫を一個減らして",
+            "{ItemName}の在庫を減らして",
+            "{ItemName}を使った",
+            "{ItemName}一個使った",
+            "{ItemName}を取り出した"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": []
+    }
+  }
+}

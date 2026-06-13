@@ -1,0 +1,13 @@
+{
+  "name": "inventory-alexa-skill",
+  "version": "1.0.0",
+  "description": "Alexa skill for inventory management",
+  "main": "index.js",
+  "scripts": {
+    "build": "cd /workspace/platform && docker compose --profile alexa run --rm alexa-build"
+  },
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "axios": "^1.7.0"
+  }
+}

@@ -56,6 +56,14 @@ services:
       db:
         condition: service_healthy
 
+  alexa-build:
+    image: node:20-alpine
+    profiles: ["alexa"]
+    volumes:
+      - ../app/alexa:/workspace
+    working_dir: /workspace/lambda
+    command: sh -c "apk add --no-cache zip && npm install && zip -r ../skill.zip index.js node_modules"
+
   web:
     build: ../app/web
     container_name: nextjs_web

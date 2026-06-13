@@ -8,7 +8,7 @@
           "slots": [
             {
               "name": "ItemName",
-              "type": "AMAZON.SearchQuery"
+              "type": "ITEM_NAME"
             }
           ],
           "samples": [
@@ -42,7 +42,22 @@
           "samples": []
         }
       ],
-      "types": []
+      "types": [
+        {
+          "name": "ITEM_NAME",
+          "values": [
+            { "name": { "value": "ハンマー" } },
+            { "name": { "value": "ドライバー" } },
+            { "name": { "value": "ボールペン" } },
+            { "name": { "value": "鉛筆" } },
+            { "name": { "value": "マウス" } },
+            { "name": { "value": "キーボード" } },
+            { "name": { "value": "ノート" } },
+            { "name": { "value": "テープ" } },
+            { "name": { "value": "はさみ" } }
+          ]
+        }
+      ]
     }
   }
 }

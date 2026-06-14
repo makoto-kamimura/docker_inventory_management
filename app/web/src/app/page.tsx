@@ -100,6 +100,8 @@ function InventoryApp({
 
   const [barcodeEditTarget, setBarcodeEditTarget] = useState<Item | null>(null);
   const [categoryEditTarget, setCategoryEditTarget] = useState<Item | null>(null);
+  const [nameEditTarget, setNameEditTarget] = useState<Item | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
   // 在庫0からの補充時に金額を入力させる対象 (null なら閉じている)
   const [amountTarget, setAmountTarget] = useState<Item | null>(null);
 
@@ -291,6 +293,26 @@ function InventoryApp({
     }
   };
 
+  const handleSaveName = async (item: Item, name: string) => {
+    try {
+      await api.setItemName(item.id, name);
+      setNameEditTarget(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDeleteItem = async (item: Item) => {
+    try {
+      await api.deleteItem(item.id);
+      setDeleteTarget(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleSaveCategory = async (item: Item, categoryId: number) => {
     try {
       await api.setItemCategory(item.id, categoryId);
@@ -426,6 +448,8 @@ function InventoryApp({
                       onOpenHistory={openHistory}
                       onEditBarcode={setBarcodeEditTarget}
                       onMoveCategory={setCategoryEditTarget}
+                      onEditName={setNameEditTarget}
+                      onDelete={setDeleteTarget}
                     />
                   );
                 })}
@@ -440,6 +464,8 @@ function InventoryApp({
                     onOpenHistory={openHistory}
                     onEditBarcode={setBarcodeEditTarget}
                     onMoveCategory={setCategoryEditTarget}
+                    onEditName={setNameEditTarget}
+                    onDelete={setDeleteTarget}
                   />
                 )}
               </div>
@@ -655,6 +681,22 @@ function InventoryApp({
         </section>
       )}
 
+      {nameEditTarget && (
+        <NameEditModal
+          item={nameEditTarget}
+          onClose={() => setNameEditTarget(null)}
+          onSave={handleSaveName}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmModal
+          item={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteItem}
+        />
+      )}
+
       {barcodeEditTarget && (
         <BarcodeEditModal
           item={barcodeEditTarget}
@@ -848,6 +890,8 @@ function CategoryGroup({
   onOpenHistory,
   onEditBarcode,
   onMoveCategory,
+  onEditName,
+  onDelete,
 }: {
   title: string;
   count: number;
@@ -858,6 +902,8 @@ function CategoryGroup({
   onOpenHistory: (item: Item) => void;
   onEditBarcode: (item: Item) => void;
   onMoveCategory: (item: Item) => void;
+  onEditName: (item: Item) => void;
+  onDelete: (item: Item) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -881,7 +927,18 @@ function CategoryGroup({
           <li key={item.id} className="px-4 py-3 pl-8">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
               <div className="min-w-0 flex-1">
-                <div className="font-medium break-words">{item.name}</div>
+                <div className="flex items-center gap-1">
+                  <span className="font-medium break-words">{item.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => onEditName(item)}
+                    aria-label="名前を編集"
+                    title="名前を編集"
+                    className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  >
+                    ✎
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => onEditBarcode(item)}
@@ -952,6 +1009,15 @@ function CategoryGroup({
                   className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   履歴
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(item)}
+                  aria-label="削除"
+                  title="削除"
+                  className="rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                >
+                  削除
                 </button>
               </div>
             </div>
@@ -1117,6 +1183,147 @@ function CategoryEditModal({
             className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NameEditModal({
+  item,
+  onClose,
+  onSave,
+}: {
+  item: Item;
+  onClose: () => void;
+  onSave: (item: Item, name: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(item.name);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      await onSave(item, trimmed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">品目名の編集</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          >
+            ×
+          </button>
+        </div>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          maxLength={255}
+          className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+          }}
+        />
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={saving || !value.trim() || value.trim() === item.name}
+            onClick={() => void submit()}
+            className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmModal({
+  item,
+  onClose,
+  onConfirm,
+}: {
+  item: Item;
+  onClose: () => void;
+  onConfirm: (item: Item) => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  const submit = async () => {
+    setDeleting(true);
+    try {
+      await onConfirm(item);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">品目の削除</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          >
+            ×
+          </button>
+        </div>
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          <span className="font-medium">{item.name}</span> を削除しますか？この操作は元に戻せません。
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={deleting}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => void submit()}
+            className="rounded border border-red-300 bg-red-600 px-4 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-40"
+          >
+            削除する
           </button>
         </div>
       </div>

@@ -193,6 +193,15 @@ export const api = {
         : {}),
     }),
 
+  setItemName: (id: number, name: string) =>
+    request<Item>(`/api/items/${id}/name`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteItem: (id: number) =>
+    request<void>(`/api/items/${id}`, { method: "DELETE" }),
+
   setItemBarcode: (id: number, barcode: string | null) =>
     request<Item>(`/api/items/${id}/barcode`, {
       method: "PUT",

@@ -100,6 +100,24 @@ class ItemController extends Controller
         return $item->fresh('category');
     }
 
+    public function updateName(Item $item, Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $item->name = $data['name'];
+        $item->save();
+
+        return $item->fresh('category');
+    }
+
+    public function destroy(Item $item)
+    {
+        $item->delete();
+        return response()->noContent();
+    }
+
     public function scan(Request $request)
     {
         $data = $request->validate([

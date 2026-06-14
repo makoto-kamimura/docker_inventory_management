@@ -26,8 +26,10 @@ Route::middleware('auth.token')->group(function () {
     Route::post('/items/scan', [ItemController::class, 'scan']);
     Route::put('/items/{item}/decrement', [ItemController::class, 'decrement']);
     Route::put('/items/{item}/increment', [ItemController::class, 'increment']);
+    Route::put('/items/{item}/name', [ItemController::class, 'updateName']);
     Route::put('/items/{item}/barcode', [ItemController::class, 'updateBarcode']);
     Route::put('/items/{item}/category', [ItemController::class, 'updateCategory']);
+    Route::delete('/items/{item}', [ItemController::class, 'destroy']);
     Route::get('/items/{item}/histories', [ItemController::class, 'histories']);
 
     Route::get('/analytics/timeseries', [AnalyticsController::class, 'timeseries']);

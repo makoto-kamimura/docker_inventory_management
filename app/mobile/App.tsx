@@ -641,7 +641,6 @@ function InventoryApp({
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
                       onEditBarcode={openBarcodeScannerFor}
-                      onMoveCategory={setCategoryEditItem}
                       onEditGroup={setGroupEditItem}
                       onEditStorageLocation={setStorageEditItem}
                       onEditName={setNameEditItem}
@@ -659,7 +658,6 @@ function InventoryApp({
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
                       onEditBarcode={openBarcodeScannerFor}
-                      onMoveCategory={setCategoryEditItem}
                       onEditGroup={setGroupEditItem}
                       onEditStorageLocation={setStorageEditItem}
                       onEditName={setNameEditItem}
@@ -986,6 +984,10 @@ function InventoryApp({
           item={nameEditItem}
           onClose={() => setNameEditItem(null)}
           onSave={handleSaveName}
+          onMoveCategory={() => {
+            setCategoryEditItem(nameEditItem);
+            setNameEditItem(null);
+          }}
         />
       )}
 
@@ -1344,10 +1346,12 @@ function NameEditModal({
   item,
   onClose,
   onSave,
+  onMoveCategory,
 }: {
   item: Item;
   onClose: () => void;
   onSave: (item: Item, name: string) => Promise<void>;
+  onMoveCategory: () => void;
 }) {
   const [value, setValue] = useState(item.name);
   const [saving, setSaving] = useState(false);
@@ -1400,6 +1404,14 @@ function NameEditModal({
               returnKeyType="done"
               onSubmitEditing={() => { void submit(); }}
             />
+            <Pressable
+              style={({ pressed }) => [styles.smallButton, pressed && styles.smallButtonPressed]}
+              onPress={onMoveCategory}
+              disabled={saving}
+              accessibilityLabel="カテゴリを変更"
+            >
+              <Text style={styles.smallButtonText}>カテゴリを変更</Text>
+            </Pressable>
             <View style={styles.amountActions}>
               <Pressable
                 style={({ pressed }) => [
@@ -1591,7 +1603,6 @@ function CategoryGroup({
   onDecrement,
   onOpenHistory,
   onEditBarcode,
-  onMoveCategory,
   onEditGroup,
   onEditStorageLocation,
   onEditName,
@@ -1606,7 +1617,6 @@ function CategoryGroup({
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
   onEditBarcode: (item: Item) => void;
-  onMoveCategory: (item: Item) => void;
   onEditGroup: (item: Item) => void;
   onEditStorageLocation: (item: Item) => void;
   onEditName: (item: Item) => void;
@@ -1728,13 +1738,6 @@ function CategoryGroup({
                       accessibilityLabel="在庫増 (+1)"
                     >
                       <Text style={styles.iconButtonText}>＋</Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [styles.smallButton, pressed && styles.smallButtonPressed]}
-                      onPress={() => onMoveCategory(item)}
-                      accessibilityLabel="カテゴリを変更"
-                    >
-                      <Text style={styles.smallButtonText}>移動</Text>
                     </Pressable>
                     <Pressable
                       style={({ pressed }) => [styles.smallButton, pressed && styles.smallButtonPressed]}

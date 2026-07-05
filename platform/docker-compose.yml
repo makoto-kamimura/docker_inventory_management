@@ -13,6 +13,14 @@ services:
     environment:
       # migrate (default, データ保持) / fresh (初期化 + seed)
       MIGRATE_MODE: ${MIGRATE_MODE:-migrate}
+      DB_HOST: ${DB_HOST:-demo-inventory-db}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE:-inventory_demo}
+      DB_USERNAME: ${DB_USERNAME:-inv_user}
+      DB_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - default
+      - prod_inventory
     command: sh -c "./wait-for-db.sh"
 
   db:
@@ -56,6 +64,25 @@ services:
       db:
         condition: service_healthy
 
+  alexa-server:
+    image: node:22-alpine
+    container_name: alexa_server
+    volumes:
+      - ./alexa-server:/app
+    working_dir: /app
+    command: sh -c "npm install && node index.js"
+    environment:
+      PORT: 3002
+      API_BASE_URL: ${API_BASE_URL:-http://demo-inventory-api:8000}
+      API_TOKEN: ${API_TOKEN}
+    networks:
+      default: {}
+      prod_inventory: {}
+      proxy_network:
+        aliases:
+          - demo-inventory-alexa
+    restart: unless-stopped
+
   alexa-build:
     image: node:20-alpine
     profiles: ["alexa"]
@@ -84,3 +111,11 @@ services:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
     depends_on:
       - app
+
+networks:
+  prod_inventory:
+    external: true
+    name: docker_wordpress_demo_inventory_backend
+  proxy_network:
+    external: true
+    name: docker_wordpress_proxy_network

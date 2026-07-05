@@ -794,6 +794,228 @@ server {
 | マイグレーション | `MIGRATE_MODE=migrate` / `fresh` で切替 | `migrate --force` 固定 (entrypoint) |
 | TLS | なし | Caddy 自動取得 (LE) |
 
+## 10. Alexa スキル
+
+### 10.1 利用方法
+
+スキルの呼び出し名は **「在庫管理」**。
+
+#### 起動から払い出しまでの流れ
+
+```
+「アレクサ、在庫管理を開いて」
+  → 「在庫管理を開きました。何を払い出しますか？」
+
+「マウス」
+  → 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
+
+「ボールペン」          ← 続けて払い出す場合
+  → 「ボールペンを1個払い出しました。残り2個です。他に払い出すものはありますか？」
+
+「大丈夫」             ← 終了する場合 (「払い出さない」「いいえ」「結構です」でも可)
+  → 「在庫管理を閉じます。」
+```
+
+#### 在庫が 0 の場合
+
+```
+「ハンマー」
+  → 「ハンマーの在庫は0個です。払い出しできません。」
+```
+
+#### 聞き取れなかった場合
+
+```
+（不明な発話）
+  → 「すみません、聞き取れませんでした。払い出す品名を教えてください。」
+```
+
+#### 終了コマンド
+
+「キャンセル」「ストップ」でも「在庫管理を閉じます。」と応答してセッション終了する。
+
+---
+
+### 10.2 デプロイ方式の選択
+
+| 項目 | 方式 A: Lambda | 方式 B: 自サーバー |
+| --- | --- | --- |
+| バックエンド | AWS Lambda (Node.js 22.x) | `alexa_server` コンテナ (Express) |
+| AWS アカウント | 必要 | 不要 |
+| エンドポイント指定 | Lambda ARN | HTTPS URL |
+| 署名検証 | Alexa SDK 内部で実施 | `ask-sdk-express-adapter` が実施 |
+| コスト | AWS 無料枠内 (月 1M リクエスト) | サーバー費用に含まれる |
+| 更新手順 | zip ビルド → Lambda アップロード | `docker compose restart alexa-server` |
+| 向いている場面 | AWS 環境がある / サーバーレスで動かしたい | 既存サーバーで完結させたい |
+
+---
+
+### 10.3 方式 A — Lambda デプロイ
+
+> **前提**: AWS アカウントに Lambda 関数 `inventory-alexa-skill` が作成済みであること。Alexa Developer Console でスキルが作成済みであること。秘匿情報は `doc/alexa-secrets.local.md` (git 管理外) を参照。
+
+#### Step 1 — skill.zip をビルド
+
+```bash
+cd platform
+docker compose --profile alexa run --rm alexa-build
+```
+
+`app/alexa/skill.zip`（約 1MB）が生成される。`index.js` と `node_modules` が含まれていることを確認:
+
+```bash
+python3 -c "
+import zipfile
+with zipfile.ZipFile('../app/alexa/skill.zip') as z:
+    names = z.namelist()
+    print('index.js:', 'index.js' in names)
+    print('modules:', sum(1 for n in names if n.startswith('node_modules/')), 'files')
+"
+```
+
+#### Step 2 — Lambda にコードをアップロード
+
+1. [Lambda コンソール](https://ap-southeast-2.console.aws.amazon.com/lambda/home?region=ap-southeast-2#/functions/inventory-alexa-skill) を開く
+2. **「コード」タブ** → **「アップロード元」** → **「.zip ファイル」**
+3. `app/alexa/skill.zip` を選択して **「保存」**
+
+#### Step 3 — 環境変数を確認・設定
+
+**「設定」タブ → 「環境変数」** に以下が設定されているか確認（なければ追加）:
+
+| キー | 値 |
+| --- | --- |
+| `API_BASE_URL` | `https://inventory.example.com` |
+| `API_TOKEN` | (`doc/alexa-secrets.local.md` の値を参照) |
+
+#### Step 4 — ランタイムとタイムアウトを確認
+
+**「コード」タブ → 下部「ランタイム設定」→「編集」**:
+- ランタイム: **`Node.js 22.x`** / ハンドラー: `index.handler`
+
+**「設定」タブ → 「一般設定」→「編集」**:
+- タイムアウト: **15 秒以上** (デフォルト 3 秒は API 呼び出しでタイムアウトする)
+
+#### Step 5 — Alexa トリガーを確認
+
+**「設定」タブ → 「トリガー」** に `Alexa Skills Kit` があるか確認。なければ「トリガーを追加」→「Alexa Skills Kit」→ スキル ID を入力:
+```
+amzn1.ask.skill.872aecc6-f1b7-46c1-8374-41a4f8fe0f68
+```
+
+#### Step 6 — Alexa Developer Console でエンドポイントを設定
+
+「ビルド」タブ → 「エンドポイント」→ **「AWS Lambda ARN」** を選択して Lambda ARN を入力 → 「エンドポイントを保存」。
+
+#### Step 7 — インタラクションモデルをデプロイ
+
+1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「在庫管理」→「ビルド」タブ
+2. 左メニュー「インタラクションモデル」→「**JSON エディター**」
+3. `app/alexa/interaction-model/ja-JP.json` の内容を貼り付けて「**モデルを保存**」→「**モデルをビルド**」
+
+#### Step 8 — 動作確認
+
+「テスト」タブで `在庫管理を開いて` → 「在庫管理を開きました。何を払い出しますか？」が返れば成功。
+
+#### トラブルシュート (方式 A)
+
+| 症状 | 確認・対処 |
+| --- | --- |
+| スキルがリクエストに正しく応答できませんでした | CloudWatch ログ (モニタリングタブ → 「CloudWatch のログを表示」) でエラー確認 |
+| `Runtime.CallbackHandlerDeprecated` | ランタイムが Node.js 24 → Node.js 22.x に変更 |
+| `Unable to find a suitable request handler` | 未登録インテント。`index.js` にハンドラーを追加して再デプロイ |
+| `SessionEndedRequest reason: "ERROR"` | Lambda レスポンスが仕様違反 (例: `LaunchRequest` で `addElicitSlotDirective` 使用) |
+| API タイムアウト | Lambda タイムアウトが短い (15 秒以上に変更) / `API_BASE_URL` 未設定 |
+| 品名が認識されない | `ITEM_NAME` スロット型に品名が登録されているか確認 (`ja-JP.json`) |
+
+---
+
+### 10.4 方式 B — 自サーバー デプロイ
+
+> **前提**: `platform/docker-compose.yml` に `alexa-server` サービスが定義済みであること。本番サーバーで Nginx が `inventory.example.com` のリバースプロキシを担っていること。
+
+#### Step 1 — `platform/.env` に API トークンを設定
+
+```bash
+# platform/.env
+API_BASE_URL=http://demo-inventory-api:8000
+API_TOKEN=<doc/alexa-secrets.local.md の値>
+```
+
+#### Step 2 — alexa_server コンテナを起動
+
+```bash
+cd platform
+docker compose up -d alexa-server
+docker compose logs alexa-server   # "Alexa skill server running on port 3002" を確認
+```
+
+#### Step 3 — Nginx の `/alexa` ルーティングを確認
+
+`docker_wordpress/platform/nginx_data/conf.d/inventory.conf` に以下が含まれていること:
+
+```nginx
+location /alexa {
+    modsecurity off;
+    proxy_pass         http://demo-inventory-alexa:3002;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_read_timeout 10s;
+}
+```
+
+エンドポイントの疎通確認 (400 が返れば正常 — 署名なしリクエストを正しく拒否している):
+
+```bash
+curl -sI -X POST https://inventory.example.com/alexa
+# → HTTP/2 400
+```
+
+#### Step 4 — Alexa Developer Console でエンドポイントを設定
+
+「ビルド」タブ → 「エンドポイント」→ **「HTTPS」** を選択:
+
+| 項目 | 値 |
+| --- | --- |
+| デフォルトのリージョン URL | `https://inventory.example.com/alexa` |
+| SSL 証明書の種類 | 「サブドメインのワイルドカード証明書を持つ信頼できる証明機関」 |
+
+「エンドポイントを保存」。
+
+#### Step 5 — インタラクションモデルをデプロイ
+
+1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「在庫管理」→「ビルド」タブ
+2. 左メニュー「インタラクションモデル」→「**JSON エディター**」
+3. `app/alexa/interaction-model/ja-JP.json` の内容を貼り付けて「**モデルを保存**」→「**モデルをビルド**」
+
+#### Step 6 — 動作確認
+
+Alexa シミュレーター (または実機) で `在庫管理を開いて` → 「在庫管理を開きました。何を払い出しますか？」が返れば成功。
+
+#### コードを更新した場合
+
+```bash
+cd platform
+docker compose restart alexa-server
+docker compose logs alexa-server   # 起動確認
+```
+
+#### トラブルシュート (方式 B)
+
+| 症状 | 確認・対処 |
+| --- | --- |
+| `curl` が 404 | Nginx の `/alexa` location ブロックが未設定、または `alexa_server` が `proxy_network` に未接続 |
+| `curl` が 502 / 503 | `docker ps` で `alexa_server` が起動しているか確認。`docker logs alexa_server` でエラー確認 |
+| 「在庫システムに接続できませんでした」 | `API_BASE_URL` が間違っている (正: `http://demo-inventory-api:8000`)。`docker logs alexa_server` で `getItems error:` を確認 |
+| 「スキルがリクエストに正しく応答できませんでした」 | Alexa Developer Console のエンドポイントが Lambda ARN のまま → HTTPS URL に変更 |
+| 401 エラー | `API_TOKEN` が正しくない。`platform/.env` を確認後 `docker compose restart alexa-server` |
+| 品名が認識されない | `ITEM_NAME` スロット型に品名が登録されているか確認 (`ja-JP.json`) |
+
+---
+
 ## 9. ディレクトリ早見表
 
 | パス                                   | 役割                                   |
@@ -813,4 +1035,8 @@ server {
 | `app/backend/database/seeders/`        | 初期データ投入 (Item / ユーザー系)     |
 | `app/mobile/app.json`                  | Expo 設定 (bundle id / package / camera 権限) |
 | `app/mobile/eas.json`                  | EAS Build プロファイル (preview / production) |
+| `app/alexa/interaction-model/ja-JP.json` | Alexa インタラクションモデル (インテント・スロット定義) |
+| `app/alexa/lambda/index.js`            | Alexa Lambda ハンドラー本体            |
+| `app/alexa/skill.zip`                  | Lambda デプロイ用 zip (ビルド後に生成、gitignore) |
+| `doc/alexa-secrets.local.md`           | Alexa スキル ID / Lambda ARN / API トークン等の秘匿情報 (gitignore) |
 | `platform/mysql/`                      | MySQL データ (gitignore)               |

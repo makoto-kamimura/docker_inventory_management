@@ -11,10 +11,14 @@ class ItemController extends Controller
     {
         // 単価 (amount) 入力のある履歴の平均金額を avg_amount として付与する。
         // SQL の AVG は NULL を無視するため、明示の whereNotNull は冗長だが意図を示す。
-        return Item::with('category')
+        return Item::with(['category', 'group', 'storageLocation'])
             ->withAvg(
                 ['histories as avg_amount' => fn ($q) => $q->whereNotNull('amount')],
                 'amount'
+            )
+            ->withMin(
+                ['histories as nearest_expires_at' => fn ($q) => $q->whereNotNull('expires_at')],
+                'expires_at'
             )
             ->orderBy('name')
             ->get();
@@ -27,6 +31,10 @@ class ItemController extends Controller
             'category_id' => 'required|integer|exists:categories,id',
             'stock' => 'required|integer|min:0',
             'barcode' => 'nullable|string|max:64|unique:items,barcode',
+            'group_id' => 'nullable|integer|exists:item_groups,id',
+            'storage_location_id' => 'nullable|integer|exists:storage_locations,id',
+            'amount' => 'nullable|integer|min:0',
+            'expires_at' => 'nullable|date',
         ]);
 
         $item = Item::create($data);
@@ -34,11 +42,13 @@ class ItemController extends Controller
         if ($item->stock > 0) {
             $item->histories()->create([
                 'change' => $item->stock,
+                'amount' => $data['amount'] ?? null,
+                'expires_at' => $data['expires_at'] ?? null,
                 'user_id' => auth()->id(),
             ]);
         }
 
-        return $item->load('category');
+        return $item->load(['category', 'group', 'storageLocation']);
     }
 
     public function decrement(Item $item)
@@ -55,15 +65,17 @@ class ItemController extends Controller
 
     public function increment(Item $item, Request $request)
     {
-        // 在庫0からの補充時のみフロントが amount を送る (任意)。
+        // 在庫0からの補充時のみフロントが amount / expires_at を送る (任意)。
         $data = $request->validate([
             'amount' => 'nullable|integer|min:0',
+            'expires_at' => 'nullable|date',
         ]);
 
         $item->increment('stock');
         $item->histories()->create([
             'change' => 1,
             'amount' => $data['amount'] ?? null,
+            'expires_at' => $data['expires_at'] ?? null,
             'user_id' => auth()->id(),
         ]);
 
@@ -97,7 +109,19 @@ class ItemController extends Controller
         $item->category_id = $data['category_id'];
         $item->save();
 
-        return $item->fresh('category');
+        return $item->fresh(['category', 'group', 'storageLocation']);
+    }
+
+    public function updateStorageLocation(Item $item, Request $request)
+    {
+        $data = $request->validate([
+            'storage_location_id' => 'nullable|integer|exists:storage_locations,id',
+        ]);
+
+        $item->storage_location_id = $data['storage_location_id'];
+        $item->save();
+
+        return $item->fresh(['category', 'group', 'storageLocation']);
     }
 
     public function updateName(Item $item, Request $request)

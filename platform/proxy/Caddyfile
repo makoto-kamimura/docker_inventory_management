@@ -20,6 +20,12 @@
 
 # ---- メインサイト (Web + API) ------------------------------------------------
 {$SITE_HOSTNAME} {
+    # Alexa スキルの webhook エンドポイント
+    @alexa path /alexa
+    handle @alexa {
+        reverse_proxy alexa-server:3002
+    }
+
     # /api/* と Laravel 標準の /up はバックエンドの PHP-FPM (FastCGI) へ。
     # /favicon.ico /robots.txt は Laravel の public/ から配信。
     @backend path /api/* /up /favicon.ico /robots.txt

@@ -1,5 +1,6 @@
 const BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
+  "https://inventory.example.com";
 
 export type User = {
   id: number;
@@ -14,20 +15,24 @@ export type Category = {
 
 export type StorageLocation = {
   id: number;
-  category_id: number;
   description: string;
-  category?: Category;
+  created_at?: string;
+  updated_at?: string;
 };
 
-// トークンはメモリ保持 (アプリ再起動で再ログイン)。永続化したい場合は
-// expo-secure-store を導入して get/set を差し替える。
+export type ItemGroup = {
+  id: number;
+  name: string;
+  items_count?: number;
+};
+
+// トークンはメモリ保持 (アプリ再起動で再ログイン)
 let authToken: string | null = null;
 
 export function getToken(): string | null {
   return authToken;
 }
 
-// 401 を受けたとき UI 側へ通知してログイン画面へ戻すためのハンドラ
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
@@ -37,12 +42,16 @@ export type Item = {
   id: number;
   name: string;
   category_id: number;
+  group_id?: number | null;
+  storage_location_id?: number | null;
   stock: number;
   barcode?: string | null;
   category?: Category;
-  // 過去に単価入力のある履歴の平均金額 (円)。一度も入力がなければ null。
-  // MySQL の DECIMAL は文字列で返るため number | string の両方を許容する。
+  group?: ItemGroup | null;
+  storage_location?: StorageLocation | null;
+  // MySQL の DECIMAL は文字列で返るため number | string の両方を許容する
   avg_amount?: number | string | null;
+  nearest_expires_at?: string | null;
 };
 
 export type ScanResult =
@@ -56,6 +65,7 @@ export type ItemHistory = {
   user_id?: number | null;
   change: number;
   amount?: number | null;
+  expires_at?: string | null;
   changed_at: string;
   user?: { id: number; name: string } | null;
 };
@@ -121,19 +131,7 @@ export const api = {
     }
   },
 
-  // --- 保管場所 ---
-  listStorageLocations: () =>
-    request<StorageLocation[]>("/api/storage-locations"),
-
-  createStorageLocation: (input: {
-    category_id: number;
-    description: string;
-  }) =>
-    request<StorageLocation>("/api/storage-locations", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-
+  // --- カテゴリ ---
   listCategories: () => request<Category[]>("/api/categories"),
 
   createCategory: (name: string) =>
@@ -142,6 +140,47 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
+  deleteCategory: (id: number) =>
+    request<void>(`/api/categories/${id}`, { method: "DELETE" }),
+
+  // --- 保管場所 ---
+  listStorageLocations: () =>
+    request<StorageLocation[]>("/api/storage-locations"),
+
+  createStorageLocation: (description: string) =>
+    request<StorageLocation>("/api/storage-locations", {
+      method: "POST",
+      body: JSON.stringify({ description }),
+    }),
+
+  setItemStorageLocation: (id: number, storage_location_id: number | null) =>
+    request<Item>(`/api/items/${id}/storage-location`, {
+      method: "PUT",
+      body: JSON.stringify({ storage_location_id }),
+    }),
+
+  deleteStorageLocation: (id: number) =>
+    request<void>(`/api/storage-locations/${id}`, { method: "DELETE" }),
+
+  // --- グループ ---
+  listItemGroups: () => request<ItemGroup[]>("/api/item-groups"),
+
+  createItemGroup: (name: string) =>
+    request<ItemGroup>("/api/item-groups", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteItemGroup: (id: number) =>
+    request<void>(`/api/item-groups/${id}`, { method: "DELETE" }),
+
+  setItemGroup: (id: number, group_id: number | null) =>
+    request<Item>(`/api/items/${id}/group`, {
+      method: "PUT",
+      body: JSON.stringify({ group_id }),
+    }),
+
+  // --- 物品 ---
   listItems: () => request<Item[]>("/api/items"),
 
   createItem: (input: {
@@ -149,14 +188,16 @@ export const api = {
     category_id: number;
     stock: number;
     barcode?: string | null;
+    group_id?: number | null;
+    storage_location_id?: number | null;
+    amount?: number | null;
+    expires_at?: string | null;
   }) =>
     request<Item>("/api/items", {
       method: "POST",
       body: JSON.stringify(input),
     }),
 
-  // バーコードを送ると、見つかれば +1 してアイテムを返し、見つからなければ 404 で
-  // not_found を返す。404 もボディを取り出したいので、ここは fetch を直接使う。
   scanBarcode: async (barcode: string): Promise<ScanResult> => {
     const res = await fetch(`${BASE_URL}/api/items/scan`, {
       method: "POST",
@@ -179,7 +220,6 @@ export const api = {
         data.message ?? data.error ?? `${res.status} ${res.statusText}`,
       );
     }
-    // 200: action は "incremented" (在庫>0 を加算済) か "needs_amount" (在庫0で未加算)
     const data = (await res.json()) as
       | { action: "incremented"; item: Item }
       | { action: "needs_amount"; item: Item };
@@ -189,18 +229,31 @@ export const api = {
   decrementItem: (id: number) =>
     request<Item>(`/api/items/${id}/decrement`, { method: "PUT" }),
 
-  // amount は在庫0からの補充時のみ渡す (任意)。null/未指定なら金額なしで +1。
-  incrementItem: (id: number, amount?: number | null) =>
-    request<Item>(`/api/items/${id}/increment`, {
+  // amount / expiresAt は在庫0からの補充時のみ渡す (任意)
+  incrementItem: (id: number, amount?: number | null, expiresAt?: string | null) => {
+    const body: Record<string, unknown> = {};
+    if (amount != null) body.amount = amount;
+    if (expiresAt != null) body.expires_at = expiresAt;
+    return request<Item>(`/api/items/${id}/increment`, {
       method: "PUT",
-      ...(amount != null ? { body: JSON.stringify({ amount }) } : {}),
-    }),
+      ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {}),
+    });
+  },
 
   setItemBarcode: (id: number, barcode: string | null) =>
     request<Item>(`/api/items/${id}/barcode`, {
       method: "PUT",
       body: JSON.stringify({ barcode }),
     }),
+
+  setItemName: (id: number, name: string) =>
+    request<Item>(`/api/items/${id}/name`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteItem: (id: number) =>
+    request<void>(`/api/items/${id}`, { method: "DELETE" }),
 
   setItemCategory: (id: number, category_id: number) =>
     request<Item>(`/api/items/${id}/category`, {

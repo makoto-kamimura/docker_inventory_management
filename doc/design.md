@@ -26,13 +26,15 @@
 │  app/mobile (host)  │     └─────────────────────────┘            │
 │  ＋カメラ/バーコード │                                ┌──────────────────┐
 └─────────────────────┘                                │ phpMyAdmin :8080 │
-┌─────────────────────┐     ┌─────────────────────────┐└──────────────────┘
-│ Amazon Alexa        │ ──▶ │  AWS Lambda (Node.js)   │
-│  (音声インターフェース)│     │  app/alexa/lambda/      │
-└─────────────────────┘     └────────────┬────────────┘
-                                          │ Bearer token
-                                          ▼
-                             Laravel API (公開 HTTPS 必須)
+┌─────────────────────┐     ┌─────────────────────────────────────────┐└──────────────────┘
+│ Amazon Alexa        │ ──▶ │  バックエンド (方式 A / B から選択)       │
+│  (音声インターフェース)│     │  A) Lambda  — app/alexa/lambda/index.js │
+└─────────────────────┘     │  B) 自サーバー — platform/alexa-server/  │
+                             │     Nginx → alexa_server コンテナ :3002  │
+                             └──────────────────────┬──────────────────┘
+                                                    │ Bearer token
+                                                    ▼
+                                       Laravel API (公開 HTTPS 必須)
 ```
 
 Web / Backend / DB / phpMyAdmin はすべて `platform/docker-compose.yml` で起動する 1 つの compose プロジェクト (`platform`)。モバイルは Expo CLI を経由してホスト側で起動し、ネイティブ機能 (カメラ) を利用する。
@@ -221,12 +223,110 @@ Laravel 側 `.env` は `DB_CONNECTION=mysql / DB_HOST=db / DB_PORT=3306 / DB_DAT
 
 ## 7a. Alexa スキル
 
-- **スキル種別**: カスタムスキル (呼び出し名: `在庫管理`)
-- **バックエンド**: AWS Lambda (Node.js 20.x, `ask-sdk-core` + `axios`)
-- **対応操作**: 在庫払い出し -1 (`DecrementStockIntent`)
-- **認証**: Lambda 環境変数に Bearer トークンを保持し、全 API リクエストに付与
-- **品名マッチング**: `GET /api/items` で全件取得 → 完全一致 → 部分一致の順で検索
-- **ファイル**: `app/alexa/` / セットアップ手順: [doc/alexa-setup.md](alexa-setup.md)
+### 7a.1 概要
+
+| 項目 | 値 |
+| --- | --- |
+| スキル種別 | カスタムスキル |
+| 呼び出し名 | `在庫管理` |
+| 対応言語 | 日本語 (ja-JP) |
+| バックエンド | **方式 A**: AWS Lambda (Node.js 22.x) / **方式 B**: Express 自サーバー (`platform/alexa-server/`) |
+| 主要ライブラリ | `ask-sdk-core`, `axios` (共通) / **方式 B** は `ask-sdk-express-adapter`, `express` を追加 |
+| リージョン | ap-southeast-2 (Sydney) ※ 方式 A のみ |
+| 対応操作 | 在庫払い出し −1 (`DecrementStockIntent`) |
+
+### 7a.2 対話フロー
+
+```
+ユーザー : 「アレクサ、在庫管理を開いて」
+Alexa   : 「在庫管理を開きました。何を払い出しますか？」
+             ↓ (セッション継続・reprompt あり)
+ユーザー : 「マウス」
+Alexa   : 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
+             ↓ (セッション継続・reprompt あり)
+ユーザー : (A) 「ボールペン」 → 再度払い出し処理
+           (B) 「大丈夫」「払い出さない」「いいえ」等 → 「在庫管理を閉じます。」でセッション終了
+           (C) 「キャンセル」「ストップ」 → 「在庫管理を閉じます。」でセッション終了
+```
+
+在庫が0の場合:
+```
+Alexa : 「マウスの在庫は0個です。払い出しできません。」
+```
+
+品名が未登録の場合:
+```
+Alexa : 「ダカラは見つかりませんでした。」
+```
+
+### 7a.3 インテント定義
+
+| インテント | 役割 | サンプル発話 |
+| --- | --- | --- |
+| `DecrementStockIntent` | 在庫払い出し | `{ItemName}` |
+| `AMAZON.NoIntent` | 終了 (不要) | 大丈夫 / 払い出さない / いいえ / 結構です / ありません |
+| `AMAZON.HelpIntent` | ヘルプ | (組み込み) |
+| `AMAZON.CancelIntent` | キャンセル | (組み込み) |
+| `AMAZON.StopIntent` | 停止 | (組み込み) |
+| `AMAZON.FallbackIntent` | 聞き取れない場合の再elicit | (組み込み) |
+
+スロット `ItemName` の型 `ITEM_NAME` にカタカナ/ひらがな品名の同義語を登録。品名マッチングは取得した品名リストと比較し、完全一致 → 部分一致の順で検索する。大文字小文字・全角半角・ひらがな/カタカナを正規化して比較。
+
+### 7a.4 ハンドラー構成 (方式 A・B 共通)
+
+ハンドラーのロジックは両方式で同一。方式 A は `exports.handler` で Lambda に登録、方式 B は `ask-sdk-express-adapter` 経由で Express に接続する。
+
+| ハンドラー | 処理 |
+| --- | --- |
+| `LaunchRequestHandler` | 起動メッセージを返し、セッションを継続 |
+| `DecrementStockIntentHandler` | `GET /api/items` で品名検索 → `PUT /api/items/{id}/decrement` で減算 → 残数を告知し継続 |
+| `HelpIntentHandler` | 操作案内を返し品名を再 elicit |
+| `NoIntentHandler` | 「在庫管理を閉じます。」でセッション終了 |
+| `FallbackIntentHandler` | 「すみません、お役に立てません。」でセッション終了 |
+| `CancelAndStopIntentHandler` | 「在庫管理を閉じます。」でセッション終了 |
+| `SessionEndedRequestHandler` | セッション終了通知の受け取り (応答なし) |
+| `ErrorHandler` | 予期しないエラーのフォールバック応答 |
+
+> `addElicitSlotDirective` は `IntentRequest` への応答にのみ使用可 (`LaunchRequest` には使用不可)。
+
+### 7a.5 認証・通信
+
+**共通**
+- 環境変数 `API_BASE_URL` / `API_TOKEN` で API 接続先とトークンを管理
+- axios タイムアウト: 8 秒
+- `Authorization: Bearer <API_TOKEN>` を全 API リクエストに付与
+
+**方式 A (Lambda)**
+- Lambda タイムアウト: 15 秒以上を推奨
+- Alexa トリガー: `alexa-appkit.amazon.com` の権限を Lambda に付与
+- エンドポイント: Lambda ARN を Alexa Developer Console で指定
+
+**方式 B (自サーバー)**
+- `ask-sdk-express-adapter` が Alexa リクエスト署名検証とタイムスタンプ検証を担う (第 2・3 引数 `true, true`)
+- Nginx が `modsecurity off` + `proxy_pass http://demo-inventory-alexa:3002` でルーティング
+- エンドポイント: `https://<ドメイン>/alexa` を Alexa Developer Console で HTTPS 指定
+- SSL 証明書: 信頼できる CA (Let's Encrypt) のものが必要
+
+### 7a.6 ファイル構成
+
+```
+app/alexa/                          方式 A: Lambda 関連
+├── interaction-model/
+│   └── ja-JP.json                  インタラクションモデル (インテント・スロット定義)
+├── lambda/
+│   ├── index.js                    Lambda ハンドラー (exports.handler)
+│   ├── package.json                ask-sdk-core / axios 依存
+│   └── node_modules/               (ビルド後に生成)
+├── icon_108.png / icon_512.png     スキルアイコン
+├── skill-manifest.json             スキルマニフェスト
+└── skill.zip                       Lambda デプロイ用 zip (ビルド後に生成)
+
+platform/alexa-server/              方式 B: 自サーバー (Express)
+├── index.js                        Express + ask-sdk-express-adapter エントリーポイント
+└── package.json                    ask-sdk-core / ask-sdk-express-adapter / express / axios 依存
+```
+
+展開手順は [operation.md §10](operation.md) を参照。
 
 ## 8. 採用技術スタック
 

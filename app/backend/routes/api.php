@@ -4,6 +4,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\ItemGroupController;
 use App\Http\Controllers\StorageLocationController;
 use Illuminate\Support\Facades\Route;
 
@@ -17,9 +18,15 @@ Route::middleware('auth.token')->group(function () {
 
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::post('/categories', [CategoryController::class, 'store']);
+    Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
 
     Route::get('/storage-locations', [StorageLocationController::class, 'index']);
     Route::post('/storage-locations', [StorageLocationController::class, 'store']);
+    Route::delete('/storage-locations/{storageLocation}', [StorageLocationController::class, 'destroy']);
+
+    Route::get('/item-groups', [ItemGroupController::class, 'index']);
+    Route::post('/item-groups', [ItemGroupController::class, 'store']);
+    Route::delete('/item-groups/{itemGroup}', [ItemGroupController::class, 'destroy']);
 
     Route::get('/items', [ItemController::class, 'index']);
     Route::post('/items', [ItemController::class, 'store']);
@@ -29,6 +36,8 @@ Route::middleware('auth.token')->group(function () {
     Route::put('/items/{item}/name', [ItemController::class, 'updateName']);
     Route::put('/items/{item}/barcode', [ItemController::class, 'updateBarcode']);
     Route::put('/items/{item}/category', [ItemController::class, 'updateCategory']);
+    Route::put('/items/{item}/storage-location', [ItemController::class, 'updateStorageLocation']);
+    Route::put('/items/{item}/group', [ItemGroupController::class, 'updateItemGroup']);
     Route::delete('/items/{item}', [ItemController::class, 'destroy']);
     Route::get('/items/{item}/histories', [ItemController::class, 'histories']);
 

@@ -11,12 +11,13 @@ import {
   type AnalyticsTimeseries,
   type Category,
   type Item,
+  type ItemGroup,
   type ItemHistory,
   type StorageLocation,
   type User,
 } from "@/lib/api";
 
-type Tab = "list" | "category" | "item" | "storage" | "analytics";
+type Tab = "list" | "category" | "item" | "storage" | "group" | "analytics";
 
 const CONTAINER = "mx-auto w-full max-w-5xl px-6 sm:px-10";
 
@@ -25,7 +26,6 @@ export default function Home() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // 401 を受けたら自動でログイン画面に戻す
     setUnauthorizedHandler(() => setUser(null));
 
     (async () => {
@@ -71,9 +71,8 @@ function InventoryApp({
 
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>(
-    [],
-  );
+  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>([]);
+  const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,11 +80,12 @@ function InventoryApp({
   const [newItemName, setNewItemName] = useState("");
   const [newItemCategoryId, setNewItemCategoryId] = useState<number | "">("");
   const [newItemStock, setNewItemStock] = useState<number>(0);
-
-  const [newStorageCategoryId, setNewStorageCategoryId] = useState<
-    number | ""
-  >("");
+  const [newItemGroupId, setNewItemGroupId] = useState<number | "">("");
+  const [newItemStorageLocationId, setNewItemStorageLocationId] = useState<number | "">("");
+  const [newItemAmount, setNewItemAmount] = useState<string>("");
+  const [newItemExpiresAt, setNewItemExpiresAt] = useState<string>("");
   const [newStorageDescription, setNewStorageDescription] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
 
   const [historyTarget, setHistoryTarget] = useState<Item | null>(null);
   const [histories, setHistories] = useState<ItemHistory[]>([]);
@@ -95,28 +95,34 @@ function InventoryApp({
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>("daily");
   const [analyticsGroup, setAnalyticsGroup] = useState<AnalyticsGroup>("total");
-  const [analyticsMetric, setAnalyticsMetric] =
-    useState<AnalyticsMetric>("stock");
+  const [analyticsMetric, setAnalyticsMetric] = useState<AnalyticsMetric>("stock");
 
   const [barcodeEditTarget, setBarcodeEditTarget] = useState<Item | null>(null);
   const [categoryEditTarget, setCategoryEditTarget] = useState<Item | null>(null);
   const [nameEditTarget, setNameEditTarget] = useState<Item | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
-  // 在庫0からの補充時に金額を入力させる対象 (null なら閉じている)
+  const [groupEditTarget, setGroupEditTarget] = useState<Item | null>(null);
+  const [storageEditTarget, setStorageEditTarget] = useState<Item | null>(null);
   const [amountTarget, setAmountTarget] = useState<Item | null>(null);
 
-  const [listFilter, setListFilter] = useState<"all" | "out_of_stock">("all");
+  const [deleteCategoryTarget, setDeleteCategoryTarget] = useState<Category | null>(null);
+  const [deleteStorageTarget, setDeleteStorageTarget] = useState<StorageLocation | null>(null);
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<ItemGroup | null>(null);
+
+  const [listFilter, setListFilter] = useState<"all" | "out_of_stock" | "expires_soon">("all");
 
   const reload = async () => {
     try {
-      const [is, cs, sl] = await Promise.all([
+      const [is, cs, sl, gs] = await Promise.all([
         api.listItems(),
         api.listCategories(),
         api.listStorageLocations(),
+        api.listItemGroups(),
       ]);
       setItems(is);
       setCategories(cs);
       setStorageLocations(sl);
+      setItemGroups(gs);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -177,8 +183,33 @@ function InventoryApp({
   };
 
   const itemsByCategory = useMemo(() => {
-    const filtered =
-      listFilter === "out_of_stock" ? items.filter((it) => it.stock <= 0) : items;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let filtered: Item[];
+    if (listFilter === "out_of_stock") {
+      const groupedItems = items.filter((it) => it.group_id != null);
+      const stockByGroup = new Map<number, boolean>();
+      for (const it of groupedItems) {
+        const gid = it.group_id!;
+        if (!stockByGroup.has(gid)) stockByGroup.set(gid, false);
+        if (it.stock > 0) stockByGroup.set(gid, true);
+      }
+      filtered = items.filter((it) => {
+        if (it.group_id != null) return !stockByGroup.get(it.group_id);
+        return it.stock <= 0;
+      });
+    } else if (listFilter === "expires_soon") {
+      const soon = new Date(today);
+      soon.setDate(today.getDate() + 30);
+      filtered = items.filter((it) => {
+        if (!it.nearest_expires_at) return false;
+        return new Date(it.nearest_expires_at) <= soon;
+      });
+    } else {
+      filtered = items;
+    }
+
     const map = new Map<number, Item[]>();
     for (const c of categories) map.set(c.id, []);
     const orphan: Item[] = [];
@@ -203,6 +234,17 @@ function InventoryApp({
     }
   };
 
+  const handleDeleteCategory = async (category: Category) => {
+    try {
+      await api.deleteCategory(category.id);
+      setDeleteCategoryTarget(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDeleteCategoryTarget(null);
+    }
+  };
+
   const handleAddItem = async () => {
     if (newItemCategoryId === "") {
       setError("カテゴリを選択してください");
@@ -210,14 +252,24 @@ function InventoryApp({
     }
     const name = newItemName.trim();
     if (!name) return;
+    const stock = Math.max(0, Math.floor(newItemStock));
+    const parsedAmount = newItemAmount.trim() === "" ? null : Math.floor(Number(newItemAmount));
     try {
       await api.createItem({
         name,
         category_id: Number(newItemCategoryId),
-        stock: Math.max(0, Math.floor(newItemStock)),
+        stock,
+        group_id: newItemGroupId === "" ? null : Number(newItemGroupId),
+        storage_location_id: newItemStorageLocationId === "" ? null : Number(newItemStorageLocationId),
+        amount: stock > 0 ? (parsedAmount ?? null) : null,
+        expires_at: stock > 0 && newItemExpiresAt.trim() ? newItemExpiresAt.trim() : null,
       });
       setNewItemName("");
       setNewItemStock(0);
+      setNewItemGroupId("");
+      setNewItemStorageLocationId("");
+      setNewItemAmount("");
+      setNewItemExpiresAt("");
       await reload();
       setTab("list");
     } catch (e) {
@@ -226,17 +278,10 @@ function InventoryApp({
   };
 
   const handleAddStorage = async () => {
-    if (newStorageCategoryId === "") {
-      setError("カテゴリを選択してください");
-      return;
-    }
     const description = newStorageDescription.trim();
     if (!description) return;
     try {
-      await api.createStorageLocation({
-        category_id: Number(newStorageCategoryId),
-        description,
-      });
+      await api.createStorageLocation(description);
       setNewStorageDescription("");
       await reload();
       setTab("storage");
@@ -245,32 +290,61 @@ function InventoryApp({
     }
   };
 
-  const handleDecrement = async (item: Item) => {
+  const handleDeleteStorage = async (sl: StorageLocation) => {
     try {
-      await api.decrementItem(item.id);
+      await api.deleteStorageLocation(sl.id);
+      setDeleteStorageTarget(null);
       await reload();
-      if (historyTarget?.id === item.id) {
-        await openHistory(item);
-      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDeleteStorageTarget(null);
+    }
+  };
+
+  const handleAddGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    try {
+      await api.createItemGroup(name);
+      setNewGroupName("");
+      await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  const doIncrement = async (item: Item, amount: number | null) => {
+  const handleDeleteGroup = async (group: ItemGroup) => {
     try {
-      await api.incrementItem(item.id, amount);
+      await api.deleteItemGroup(group.id);
+      setDeleteGroupTarget(null);
       await reload();
-      if (historyTarget?.id === item.id) {
-        await openHistory(item);
-      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDeleteGroupTarget(null);
+    }
+  };
+
+  const handleDecrement = async (item: Item) => {
+    try {
+      await api.decrementItem(item.id);
+      await reload();
+      if (historyTarget?.id === item.id) await openHistory(item);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const doIncrement = async (item: Item, amount: number | null, expiresAt: string | null = null) => {
+    try {
+      await api.incrementItem(item.id, amount, expiresAt);
+      await reload();
+      if (historyTarget?.id === item.id) await openHistory(item);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const handleIncrement = (item: Item) => {
-    // 在庫0からの補充だけ金額入力モーダルを挟む。在庫>0 は従来どおり即時 +1。
     if (item.stock <= 0) {
       setAmountTarget(item);
       return;
@@ -278,9 +352,9 @@ function InventoryApp({
     void doIncrement(item, null);
   };
 
-  const handleConfirmAmount = async (item: Item, amount: number | null) => {
+  const handleConfirmAmount = async (item: Item, amount: number | null, expiresAt: string | null) => {
     setAmountTarget(null);
-    await doIncrement(item, amount);
+    await doIncrement(item, amount, expiresAt);
   };
 
   const handleSaveBarcode = async (item: Item, barcode: string | null) => {
@@ -323,6 +397,26 @@ function InventoryApp({
     }
   };
 
+  const handleSaveGroup = async (item: Item, groupId: number | null) => {
+    try {
+      await api.setItemGroup(item.id, groupId);
+      setGroupEditTarget(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleSaveStorageLocation = async (item: Item, storageLocationId: number | null) => {
+    try {
+      await api.setItemStorageLocation(item.id, storageLocationId);
+      setStorageEditTarget(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const openHistory = async (item: Item) => {
     setHistoryTarget(item);
     setHistoryLoading(true);
@@ -336,8 +430,15 @@ function InventoryApp({
     }
   };
 
+  const addButtonDisabled =
+    tab === "category" ? !newCategoryName.trim() :
+    tab === "item" ? (!newItemName.trim() || newItemCategoryId === "") :
+    tab === "storage" ? !newStorageDescription.trim() :
+    tab === "group" ? !newGroupName.trim() :
+    true;
+
   return (
-    <main className={`${CONTAINER} py-6 sm:py-10 space-y-6`}>
+    <main className={`${CONTAINER} py-6 sm:py-10 space-y-6 pb-24`}>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">在庫管理</h1>
         <div className="flex items-center gap-3 text-sm">
@@ -356,21 +457,12 @@ function InventoryApp({
         role="tablist"
         className="flex flex-wrap gap-1 border-b border-zinc-200 dark:border-zinc-800"
       >
-        <TabButton active={tab === "list"} onClick={() => setTab("list")}>
-          在庫一覧
-        </TabButton>
-        <TabButton active={tab === "category"} onClick={() => setTab("category")}>
-          カテゴリ追加
-        </TabButton>
-        <TabButton active={tab === "item"} onClick={() => setTab("item")}>
-          物品追加
-        </TabButton>
-        <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
-          保管場所追加
-        </TabButton>
-        <TabButton active={tab === "analytics"} onClick={openAnalytics}>
-          分析
-        </TabButton>
+        <TabButton active={tab === "list"} onClick={() => setTab("list")}>在庫一覧</TabButton>
+        <TabButton active={tab === "item"} onClick={() => setTab("item")}>物品追加</TabButton>
+        <TabButton active={tab === "category"} onClick={() => setTab("category")}>カテゴリ管理</TabButton>
+        <TabButton active={tab === "group"} onClick={() => setTab("group")}>グループ管理</TabButton>
+        <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>保管場所管理</TabButton>
+        <TabButton active={tab === "analytics"} onClick={openAnalytics}>分析</TabButton>
       </nav>
 
       {error && (
@@ -388,17 +480,19 @@ function InventoryApp({
         </div>
       )}
 
+      {/* 在庫一覧 */}
       {tab === "list" && (
         <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <header className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-semibold">在庫一覧</h2>
-            <div className="flex items-center gap-2">
-              <SegControl<"all" | "out_of_stock">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <SegControl<"all" | "out_of_stock" | "expires_soon">
                 value={listFilter}
                 onChange={setListFilter}
                 options={[
                   { value: "all", label: "すべて" },
-                  { value: "out_of_stock", label: "在庫切れのみ" },
+                  { value: "out_of_stock", label: "在庫切れ" },
+                  { value: "expires_soon", label: "期限 1ヶ月以内" },
                 ]}
               />
               <button
@@ -420,18 +514,19 @@ function InventoryApp({
           ) : (() => {
             const visibleCategories = categories.filter(
               (c) =>
-                listFilter !== "out_of_stock" ||
+                listFilter === "all" ||
                 (itemsByCategory.map.get(c.id)?.length ?? 0) > 0,
             );
-            const hasAny =
-              visibleCategories.length > 0 || itemsByCategory.orphan.length > 0;
+            const hasAny = visibleCategories.length > 0 || itemsByCategory.orphan.length > 0;
             if (!hasAny) {
-              return (
-                <p className="px-4 py-6 text-sm text-zinc-500">
-                  在庫切れの物品はありません
-                </p>
-              );
+              const emptyMsg =
+                listFilter === "out_of_stock" ? "在庫切れの物品はありません" :
+                listFilter === "expires_soon" ? "期限が1ヶ月以内の物品はありません" :
+                "物品がありません";
+              return <p className="px-4 py-6 text-sm text-zinc-500">{emptyMsg}</p>;
             }
+            const showAvgAmount = listFilter === "out_of_stock";
+            const showExpiresAt = listFilter === "expires_soon";
             return (
               <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
                 {visibleCategories.map((c) => {
@@ -442,13 +537,17 @@ function InventoryApp({
                       title={c.name}
                       count={list.length}
                       items={list}
-                      showAvgAmount={listFilter === "out_of_stock"}
+                      itemGroups={itemGroups}
+                      showAvgAmount={showAvgAmount}
+                      showExpiresAt={showExpiresAt}
                       onIncrement={handleIncrement}
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
                       onEditBarcode={setBarcodeEditTarget}
                       onMoveCategory={setCategoryEditTarget}
                       onEditName={setNameEditTarget}
+                      onEditGroup={setGroupEditTarget}
+                      onEditStorageLocation={setStorageEditTarget}
                       onDelete={setDeleteTarget}
                     />
                   );
@@ -458,13 +557,17 @@ function InventoryApp({
                     title="(カテゴリ未設定)"
                     count={itemsByCategory.orphan.length}
                     items={itemsByCategory.orphan}
-                    showAvgAmount={listFilter === "out_of_stock"}
+                    itemGroups={itemGroups}
+                    showAvgAmount={showAvgAmount}
+                    showExpiresAt={showExpiresAt}
                     onIncrement={handleIncrement}
                     onDecrement={handleDecrement}
                     onOpenHistory={openHistory}
                     onEditBarcode={setBarcodeEditTarget}
                     onMoveCategory={setCategoryEditTarget}
                     onEditName={setNameEditTarget}
+                    onEditGroup={setGroupEditTarget}
+                    onEditStorageLocation={setStorageEditTarget}
                     onDelete={setDeleteTarget}
                   />
                 )}
@@ -474,38 +577,59 @@ function InventoryApp({
         </section>
       )}
 
+      {/* カテゴリ管理 */}
       {tab === "category" && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleAddCategory();
-          }}
-          className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-        >
-          <h2 className="font-semibold">カテゴリ追加</h2>
-          <input
-            type="text"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            placeholder="例: 工具"
-            className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
-          />
-          <button
-            type="submit"
-            className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            disabled={!newCategoryName.trim()}
+        <div className="space-y-6">
+          <form
+            id="add-form"
+            onSubmit={(e) => { e.preventDefault(); void handleAddCategory(); }}
+            className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
           >
-            追加
-          </button>
-        </form>
+            <h2 className="font-semibold">カテゴリ追加</h2>
+            <input
+              type="text"
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="例: 工具"
+              className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </form>
+
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <header className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <h2 className="font-semibold">カテゴリ一覧</h2>
+            </header>
+            {loading ? (
+              <p className="px-4 py-6 text-sm text-zinc-500">読み込み中...</p>
+            ) : categories.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-zinc-500">カテゴリがありません</p>
+            ) : (
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {categories.map((c) => {
+                  return (
+                    <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <span className="font-medium">{c.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteCategoryTarget(c)}
+                        className="shrink-0 rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                      >
+                        削除
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
       )}
 
+      {/* 物品追加 */}
       {tab === "item" && (
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleAddItem();
-          }}
+          id="add-form"
+          onSubmit={(e) => { e.preventDefault(); void handleAddItem(); }}
           className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
         >
           <h2 className="font-semibold">物品追加</h2>
@@ -519,17 +643,13 @@ function InventoryApp({
           <select
             value={newItemCategoryId}
             onChange={(e) =>
-              setNewItemCategoryId(
-                e.target.value === "" ? "" : Number(e.target.value),
-              )
+              setNewItemCategoryId(e.target.value === "" ? "" : Number(e.target.value))
             }
             className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           >
             <option value="">カテゴリを選択</option>
             {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
           <input
@@ -540,42 +660,68 @@ function InventoryApp({
             placeholder="初期在庫"
             className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           />
-          <button
-            type="submit"
-            className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            disabled={!newItemName.trim() || newItemCategoryId === ""}
+          {newItemStock > 0 && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-sm text-zinc-500">¥</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  value={newItemAmount}
+                  onChange={(e) => setNewItemAmount(e.target.value)}
+                  placeholder="単価 (任意)"
+                  className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm text-zinc-600 dark:text-zinc-400">期限 (任意)</label>
+                <input
+                  type="date"
+                  value={newItemExpiresAt}
+                  onChange={(e) => setNewItemExpiresAt(e.target.value)}
+                  className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+              </div>
+            </>
+          )}
+          <select
+            value={newItemGroupId}
+            onChange={(e) =>
+              setNewItemGroupId(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           >
-            追加
-          </button>
+            <option value="">グループなし (任意)</option>
+            {itemGroups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+          <select
+            value={newItemStorageLocationId}
+            onChange={(e) =>
+              setNewItemStorageLocationId(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="">保管場所なし (任意)</option>
+            {storageLocations.map((sl) => (
+              <option key={sl.id} value={sl.id}>{sl.description}</option>
+            ))}
+          </select>
         </form>
       )}
 
+      {/* 保管場所管理 */}
       {tab === "storage" && (
         <div className="space-y-6">
           <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleAddStorage();
-            }}
+            id="add-form"
+            onSubmit={(e) => { e.preventDefault(); void handleAddStorage(); }}
             className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
           >
             <h2 className="font-semibold">保管場所追加</h2>
-            <select
-              value={newStorageCategoryId}
-              onChange={(e) =>
-                setNewStorageCategoryId(
-                  e.target.value === "" ? "" : Number(e.target.value),
-                )
-              }
-              className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
-            >
-              <option value="">カテゴリを選択</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
             <textarea
               value={newStorageDescription}
               onChange={(e) => setNewStorageDescription(e.target.value)}
@@ -583,15 +729,6 @@ function InventoryApp({
               rows={2}
               className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
             />
-            <button
-              type="submit"
-              className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-              disabled={
-                !newStorageDescription.trim() || newStorageCategoryId === ""
-              }
-            >
-              追加
-            </button>
           </form>
 
           <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -601,22 +738,19 @@ function InventoryApp({
             {loading ? (
               <p className="px-4 py-6 text-sm text-zinc-500">読み込み中...</p>
             ) : storageLocations.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-zinc-500">
-                保管場所がありません
-              </p>
+              <p className="px-4 py-6 text-sm text-zinc-500">保管場所がありません</p>
             ) : (
               <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {storageLocations.map((sl) => (
-                  <li
-                    key={sl.id}
-                    className="flex items-start justify-between gap-3 px-4 py-3"
-                  >
-                    <span className="whitespace-pre-wrap break-words">
-                      {sl.description}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                      {sl.category?.name ?? "(カテゴリ未設定)"}
-                    </span>
+                  <li key={sl.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{sl.description}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteStorageTarget(sl)}
+                      className="shrink-0 rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                    >
+                      削除
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -625,6 +759,80 @@ function InventoryApp({
         </div>
       )}
 
+      {/* グループ管理 */}
+      {tab === "group" && (
+        <div className="space-y-6">
+          <form
+            id="add-form"
+            onSubmit={(e) => { e.preventDefault(); void handleAddGroup(); }}
+            className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+          >
+            <h2 className="font-semibold">グループ追加</h2>
+            <p className="text-sm text-zinc-500">
+              グループを作成し、複数の品目をまとめます。在庫切れ表示ではグループ内に在庫がある品目が1つでもあればグループ全体が表示されません。
+            </p>
+            <input
+              type="text"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="例: トナーカートリッジ"
+              className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </form>
+
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <header className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <h2 className="font-semibold">グループ一覧</h2>
+            </header>
+            {loading ? (
+              <p className="px-4 py-6 text-sm text-zinc-500">読み込み中...</p>
+            ) : itemGroups.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-zinc-500">グループがありません</p>
+            ) : (
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {itemGroups.map((g) => {
+                  const members = items.filter((it) => it.group_id === g.id);
+                  return (
+                    <li key={g.id} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <span className="font-medium">{g.name}</span>
+                          <span className="ml-2 text-xs text-zinc-500">{members.length} 品目</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteGroupTarget(g)}
+                          className="rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                        >
+                          削除
+                        </button>
+                      </div>
+                      {members.length > 0 && (
+                        <ul className="mt-2 space-y-0.5 pl-2">
+                          {members.map((it) => (
+                            <li key={it.id} className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                              <span
+                                className={it.stock <= 0 ? "text-red-500" : ""}
+                              >
+                                {it.name}
+                              </span>
+                              <span className="tabular-nums text-xs">
+                                ({it.stock})
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* 分析 */}
       {tab === "analytics" && (
         <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
@@ -681,6 +889,7 @@ function InventoryApp({
         </section>
       )}
 
+      {/* モーダル群 */}
       {nameEditTarget && (
         <NameEditModal
           item={nameEditTarget}
@@ -714,11 +923,56 @@ function InventoryApp({
         />
       )}
 
+      {groupEditTarget && (
+        <GroupEditModal
+          item={groupEditTarget}
+          itemGroups={itemGroups}
+          onClose={() => setGroupEditTarget(null)}
+          onSave={handleSaveGroup}
+        />
+      )}
+
+      {storageEditTarget && (
+        <StorageLocationEditModal
+          item={storageEditTarget}
+          storageLocations={storageLocations}
+          onClose={() => setStorageEditTarget(null)}
+          onSave={handleSaveStorageLocation}
+        />
+      )}
+
       {amountTarget && (
         <AmountModal
           item={amountTarget}
           onClose={() => setAmountTarget(null)}
           onConfirm={handleConfirmAmount}
+        />
+      )}
+
+      {deleteCategoryTarget && (
+        <SimpleDeleteModal
+          title="カテゴリの削除"
+          description={`「${deleteCategoryTarget.name}」を削除しますか？物品が登録されている場合は削除できません。`}
+          onClose={() => setDeleteCategoryTarget(null)}
+          onConfirm={() => handleDeleteCategory(deleteCategoryTarget)}
+        />
+      )}
+
+      {deleteStorageTarget && (
+        <SimpleDeleteModal
+          title="保管場所の削除"
+          description={`「${deleteStorageTarget.description}」を削除しますか？`}
+          onClose={() => setDeleteStorageTarget(null)}
+          onConfirm={() => handleDeleteStorage(deleteStorageTarget)}
+        />
+      )}
+
+      {deleteGroupTarget && (
+        <SimpleDeleteModal
+          title="グループの削除"
+          description={`「${deleteGroupTarget.name}」を削除しますか？グループに属する品目のグループ設定は解除されます（品目は削除されません）。`}
+          onClose={() => setDeleteGroupTarget(null)}
+          onConfirm={() => handleDeleteGroup(deleteGroupTarget)}
         />
       )}
 
@@ -732,9 +986,7 @@ function InventoryApp({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold">
-                {historyTarget.name} の履歴
-              </h3>
+              <h3 className="font-semibold">{historyTarget.name} の履歴</h3>
               <button
                 type="button"
                 onClick={() => setHistoryTarget(null)}
@@ -754,13 +1006,20 @@ function InventoryApp({
                     key={h.id}
                     className="flex items-center justify-between gap-3 border-b border-zinc-100 py-1.5 dark:border-zinc-800"
                   >
-                    <span className="flex items-baseline gap-2">
-                      <span className="tabular-nums">
-                        {h.change > 0 ? `+${h.change}` : h.change}
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex items-baseline gap-2">
+                        <span className="tabular-nums">
+                          {h.change > 0 ? `+${h.change}` : h.change}
+                        </span>
+                        {h.amount != null && (
+                          <span className="text-xs text-emerald-600 tabular-nums dark:text-emerald-400">
+                            ¥{h.amount.toLocaleString("ja-JP")}
+                          </span>
+                        )}
                       </span>
-                      {h.amount != null && (
-                        <span className="text-xs text-emerald-600 tabular-nums dark:text-emerald-400">
-                          ¥{h.amount.toLocaleString("ja-JP")}
+                      {h.expires_at != null && (
+                        <span className="text-xs text-amber-600 dark:text-amber-400">
+                          期限 {h.expires_at}
                         </span>
                       )}
                     </span>
@@ -776,6 +1035,21 @@ function InventoryApp({
                 ))}
               </ul>
             )}
+          </div>
+        </div>
+      )}
+      {/* 固定フッター: 追加ボタン */}
+      {(tab === "category" || tab === "item" || tab === "storage" || tab === "group") && (
+        <div className="fixed bottom-0 inset-x-0 z-10 border-t border-zinc-200 bg-white/95 py-3 px-4 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/95 sm:px-10">
+          <div className="mx-auto w-full max-w-5xl">
+            <button
+              type="submit"
+              form="add-form"
+              disabled={addButtonDisabled}
+              className="w-full rounded bg-zinc-900 px-4 py-2.5 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              追加
+            </button>
           </div>
         </div>
       )}
@@ -805,10 +1079,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6">
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
+        onSubmit={(e) => { e.preventDefault(); void submit(); }}
         className="space-y-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800"
       >
         <h1 className="text-xl font-bold">在庫管理 ログイン</h1>
@@ -818,9 +1089,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
           </div>
         )}
         <div className="space-y-1">
-          <label className="text-sm text-zinc-600 dark:text-zinc-300">
-            メールアドレス
-          </label>
+          <label className="text-sm text-zinc-600 dark:text-zinc-300">メールアドレス</label>
           <input
             type="email"
             value={email}
@@ -830,9 +1099,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-zinc-600 dark:text-zinc-300">
-            パスワード
-          </label>
+          <label className="text-sm text-zinc-600 dark:text-zinc-300">パスワード</label>
           <input
             type="password"
             value={password}
@@ -884,27 +1151,38 @@ function CategoryGroup({
   title,
   count,
   items,
+  itemGroups,
   showAvgAmount = false,
+  showExpiresAt = false,
   onIncrement,
   onDecrement,
   onOpenHistory,
   onEditBarcode,
   onMoveCategory,
   onEditName,
+  onEditGroup,
+  onEditStorageLocation,
   onDelete,
 }: {
   title: string;
   count: number;
   items: Item[];
+  itemGroups: ItemGroup[];
   showAvgAmount?: boolean;
+  showExpiresAt?: boolean;
   onIncrement: (item: Item) => void;
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
   onEditBarcode: (item: Item) => void;
   onMoveCategory: (item: Item) => void;
   onEditName: (item: Item) => void;
+  onEditGroup: (item: Item) => void;
+  onEditStorageLocation: (item: Item) => void;
   onDelete: (item: Item) => void;
 }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   if (items.length === 0) {
     return (
       <div className="px-4 py-3">
@@ -923,106 +1201,152 @@ function CategoryGroup({
         <span className="text-xs text-zinc-500">{count} 件</span>
       </summary>
       <ul className="divide-y divide-zinc-100 border-t border-zinc-100 dark:divide-zinc-800 dark:border-zinc-800">
-        {items.map((item) => (
-          <li key={item.id} className="px-4 py-3 pl-8">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1">
-                  <span className="font-medium break-words">{item.name}</span>
+        {items.map((item) => {
+          const groupName = item.group?.name ?? null;
+          const storageDesc = item.storage_location?.description ?? null;
+          return (
+            <li key={item.id} className="px-4 py-3 pl-8">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1">
+                    <span className="font-medium break-words">{item.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => onEditName(item)}
+                      aria-label="名前を編集"
+                      title="名前を編集"
+                      className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    >
+                      ✎
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => onEditName(item)}
-                    aria-label="名前を編集"
-                    title="名前を編集"
-                    className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    onClick={() => onEditBarcode(item)}
+                    className="mt-0.5 inline-flex items-center gap-1 text-left text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                    title="バーコードを編集"
                   >
-                    ✎
+                    <span aria-hidden>▮▮▮</span>
+                    {item.barcode ? (
+                      <span className="tabular-nums">{item.barcode}</span>
+                    ) : (
+                      <span className="italic text-zinc-400">未設定</span>
+                    )}
+                    <span aria-hidden className="text-zinc-400">✎</span>
                   </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onEditBarcode(item)}
-                  className="mt-0.5 inline-flex items-center gap-1 text-left text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                  title="バーコードを編集"
-                >
-                  <span aria-hidden>▮▮▮</span>
-                  {item.barcode ? (
-                    <span className="tabular-nums">{item.barcode}</span>
-                  ) : (
-                    <span className="italic text-zinc-400">未設定</span>
-                  )}
-                  <span aria-hidden className="text-zinc-400">✎</span>
-                </button>
-                {showAvgAmount &&
-                  item.avg_amount != null &&
-                  Number(item.avg_amount) > 0 && (
-                    <div className="mt-0.5 text-xs tabular-nums text-emerald-600 dark:text-emerald-400">
-                      平均単価 ¥
-                      {Math.round(Number(item.avg_amount)).toLocaleString(
-                        "ja-JP",
-                      )}
+                  <button
+                    type="button"
+                    onClick={() => onEditGroup(item)}
+                    className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                    title="グループを編集"
+                  >
+                    <span aria-hidden>⊞</span>
+                    {groupName ? (
+                      <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        {groupName}
+                      </span>
+                    ) : (
+                      <span className="italic text-zinc-400">グループ未設定</span>
+                    )}
+                    <span aria-hidden className="text-zinc-400">✎</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEditStorageLocation(item)}
+                    className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                    title="保管場所を編集"
+                  >
+                    <span aria-hidden>📍</span>
+                    {storageDesc ? (
+                      <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        {storageDesc}
+                      </span>
+                    ) : (
+                      <span className="italic text-zinc-400">保管場所未設定</span>
+                    )}
+                    <span aria-hidden className="text-zinc-400">✎</span>
+                  </button>
+                  {showAvgAmount &&
+                    item.avg_amount != null &&
+                    Number(item.avg_amount) > 0 && (
+                      <div className="mt-0.5 text-xs tabular-nums text-emerald-600 dark:text-emerald-400">
+                        平均単価 ¥
+                        {Math.round(Number(item.avg_amount)).toLocaleString("ja-JP")}
+                      </div>
+                    )}
+                  {showExpiresAt && item.nearest_expires_at != null && (
+                    <div
+                      className={
+                        "mt-0.5 text-xs tabular-nums " +
+                        (new Date(item.nearest_expires_at) < today
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-amber-600 dark:text-amber-400")
+                      }
+                    >
+                      期限 {item.nearest_expires_at}
                     </div>
                   )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onDecrement(item)}
+                    disabled={item.stock <= 0}
+                    aria-label="在庫減 (-1)"
+                    title="在庫減 (-1)"
+                    className="grid h-8 w-8 place-items-center rounded border border-zinc-300 text-lg leading-none hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  >
+                    −
+                  </button>
+                  <span
+                    className={
+                      "min-w-10 text-center tabular-nums " +
+                      (item.stock === 0
+                        ? "text-red-600"
+                        : "text-zinc-900 dark:text-zinc-100")
+                    }
+                  >
+                    {item.stock}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onIncrement(item)}
+                    aria-label="在庫増 (+1)"
+                    title="在庫増 (+1)"
+                    className="grid h-8 w-8 place-items-center rounded border border-zinc-300 text-lg leading-none hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  >
+                    ＋
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMoveCategory(item)}
+                    aria-label="カテゴリを変更"
+                    title="カテゴリを変更"
+                    className="ml-1 rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  >
+                    移動
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenHistory(item)}
+                    className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  >
+                    履歴
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(item)}
+                    aria-label="削除"
+                    title="削除"
+                    className="rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                  >
+                    削除
+                  </button>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onDecrement(item)}
-                  disabled={item.stock <= 0}
-                  aria-label="在庫減 (-1)"
-                  title="在庫減 (-1)"
-                  className="grid h-8 w-8 place-items-center rounded border border-zinc-300 text-lg leading-none hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                >
-                  −
-                </button>
-                <span
-                  className={
-                    "min-w-10 text-center tabular-nums " +
-                    (item.stock === 0
-                      ? "text-red-600"
-                      : "text-zinc-900 dark:text-zinc-100")
-                  }
-                >
-                  {item.stock}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onIncrement(item)}
-                  aria-label="在庫増 (+1)"
-                  title="在庫増 (+1)"
-                  className="grid h-8 w-8 place-items-center rounded border border-zinc-300 text-lg leading-none hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                >
-                  ＋
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onMoveCategory(item)}
-                  aria-label="カテゴリを変更"
-                  title="カテゴリを変更"
-                  className="ml-1 rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                >
-                  移動
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenHistory(item)}
-                  className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                >
-                  履歴
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(item)}
-                  aria-label="削除"
-                  title="削除"
-                  className="rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
-                >
-                  削除
-                </button>
-              </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </details>
   );
@@ -1060,13 +1384,7 @@ function BarcodeEditModal({
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">{item.name} のバーコード</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            ×
-          </button>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
         </div>
         <input
           type="text"
@@ -1145,26 +1463,16 @@ function CategoryEditModal({
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">{item.name} のカテゴリ変更</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            ×
-          </button>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
         </div>
         <select
           value={value}
-          onChange={(e) =>
-            setValue(e.target.value === "" ? "" : Number(e.target.value))
-          }
+          onChange={(e) => setValue(e.target.value === "" ? "" : Number(e.target.value))}
           className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           autoFocus
         >
           {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
         <div className="flex flex-wrap justify-end gap-2">
@@ -1179,6 +1487,146 @@ function CategoryEditModal({
           <button
             type="button"
             disabled={saving || value === "" || value === item.category_id}
+            onClick={() => void submit()}
+            className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroupEditModal({
+  item,
+  itemGroups,
+  onClose,
+  onSave,
+}: {
+  item: Item;
+  itemGroups: ItemGroup[];
+  onClose: () => void;
+  onSave: (item: Item, groupId: number | null) => Promise<void>;
+}) {
+  const [value, setValue] = useState<number | "">(item.group_id ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await onSave(item, value === "" ? null : Number(value));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">{item.name} のグループ設定</h3>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
+        </div>
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value === "" ? "" : Number(e.target.value))}
+          className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          autoFocus
+        >
+          <option value="">グループなし</option>
+          {itemGroups.map((g) => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={saving || (value === "" ? null : Number(value)) === (item.group_id ?? null)}
+            onClick={() => void submit()}
+            className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StorageLocationEditModal({
+  item,
+  storageLocations,
+  onClose,
+  onSave,
+}: {
+  item: Item;
+  storageLocations: StorageLocation[];
+  onClose: () => void;
+  onSave: (item: Item, storageLocationId: number | null) => Promise<void>;
+}) {
+  const [value, setValue] = useState<number | "">(item.storage_location_id ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await onSave(item, value === "" ? null : Number(value));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">{item.name} の保管場所</h3>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
+        </div>
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value === "" ? "" : Number(e.target.value))}
+          className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          autoFocus
+        >
+          <option value="">保管場所なし</option>
+          {storageLocations.map((sl) => (
+            <option key={sl.id} value={sl.id}>{sl.description}</option>
+          ))}
+        </select>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={saving || (value === "" ? null : Number(value)) === (item.storage_location_id ?? null)}
             onClick={() => void submit()}
             className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
@@ -1224,13 +1672,7 @@ function NameEditModal({
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">品目名の編集</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            ×
-          </button>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
         </div>
         <input
           type="text"
@@ -1239,9 +1681,7 @@ function NameEditModal({
           maxLength={255}
           className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
-          }}
+          onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
         />
         <div className="flex flex-wrap justify-end gap-2">
           <button
@@ -1297,17 +1737,70 @@ function DeleteConfirmModal({
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">品目の削除</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            ×
-          </button>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
         </div>
         <p className="text-sm text-zinc-700 dark:text-zinc-300">
           <span className="font-medium">{item.name}</span> を削除しますか？この操作は元に戻せません。
         </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={deleting}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => void submit()}
+            className="rounded border border-red-300 bg-red-600 px-4 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-40"
+          >
+            削除する
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SimpleDeleteModal({
+  title,
+  description,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  description: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  const submit = async () => {
+    setDeleting(true);
+    try {
+      await onConfirm();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-4 rounded-lg bg-white p-5 shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">{title}</h3>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
+        </div>
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">{description}</p>
         <div className="flex flex-wrap justify-end gap-2">
           <button
             type="button"
@@ -1338,15 +1831,16 @@ function AmountModal({
 }: {
   item: Item;
   onClose: () => void;
-  onConfirm: (item: Item, amount: number | null) => Promise<void>;
+  onConfirm: (item: Item, amount: number | null, expiresAt: string | null) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
   const [saving, setSaving] = useState(false);
 
   const submit = async (amount: number | null) => {
     setSaving(true);
     try {
-      await onConfirm(item, amount);
+      await onConfirm(item, amount, expiresAt.trim() !== "" ? expiresAt.trim() : null);
     } finally {
       setSaving(false);
     }
@@ -1366,16 +1860,10 @@ function AmountModal({
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">{item.name} の補充 (+1)</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            ×
-          </button>
+          <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">×</button>
         </div>
         <p className="text-sm text-zinc-500">
-          在庫切れからの補充です。金額 (円) を入力してください。未入力でも追加できます。
+          在庫切れからの補充です。金額と期限を入力してください（どちらも任意）。
         </p>
         <div className="flex items-center gap-2">
           <span className="text-zinc-500">¥</span>
@@ -1389,6 +1877,15 @@ function AmountModal({
             placeholder="例: 1200"
             className="w-full rounded border border-zinc-300 px-3 py-2 tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
             autoFocus
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-zinc-600 dark:text-zinc-400">期限 (任意)</label>
+          <input
+            type="date"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
+            className="w-full rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           />
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -1434,7 +1931,7 @@ function SegControl<T extends string>({
   return (
     <div
       role="tablist"
-      className="inline-flex rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700"
+      className="inline-flex shrink-0 flex-nowrap rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700"
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -1446,7 +1943,7 @@ function SegControl<T extends string>({
             aria-selected={active}
             onClick={() => onChange(opt.value)}
             className={
-              "rounded px-3 py-1 text-xs transition-colors " +
+              "rounded px-3 py-1 text-xs transition-colors whitespace-nowrap " +
               (active
                 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                 : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800")
@@ -1461,16 +1958,16 @@ function SegControl<T extends string>({
 }
 
 const SERIES_COLORS = [
-  "#2563eb", // blue-600
-  "#16a34a", // green-600
-  "#dc2626", // red-600
-  "#d97706", // amber-600
-  "#9333ea", // purple-600
-  "#0891b2", // cyan-600
-  "#db2777", // pink-600
-  "#65a30d", // lime-600
-  "#475569", // slate-600
-  "#ea580c", // orange-600
+  "#2563eb",
+  "#16a34a",
+  "#dc2626",
+  "#d97706",
+  "#9333ea",
+  "#0891b2",
+  "#db2777",
+  "#65a30d",
+  "#475569",
+  "#ea580c",
 ];
 
 function AnalyticsLineChart({
@@ -1496,12 +1993,8 @@ function AnalyticsLineChart({
         if (v > max) max = v;
       }
     }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) {
-      return [0, 1] as const;
-    }
-    if (min === max) {
-      return [min - 1, max + 1] as const;
-    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1] as const;
+    if (min === max) return [min - 1, max + 1] as const;
     const pad = (max - min) * 0.1;
     return [Math.floor(min - pad), Math.ceil(max + pad)] as const;
   }, [series]);
@@ -1524,10 +2017,7 @@ function AnalyticsLineChart({
   const yTicks = useMemo(() => {
     const tickCount = 5;
     const step = (yMax - yMin) / tickCount;
-    return Array.from({ length: tickCount + 1 }, (_, i) => {
-      const raw = yMin + step * i;
-      return Math.round(raw);
-    });
+    return Array.from({ length: tickCount + 1 }, (_, i) => Math.round(yMin + step * i));
   }, [yMin, yMax]);
 
   const xTickStride = Math.max(1, Math.ceil(n / 8));
@@ -1544,21 +2034,8 @@ function AnalyticsLineChart({
           const y = yAt(t);
           return (
             <g key={`y-${t}`}>
-              <line
-                x1={padL}
-                y1={y}
-                x2={width - padR}
-                y2={y}
-                className="stroke-zinc-200 dark:stroke-zinc-800"
-                strokeWidth={1}
-              />
-              <text
-                x={padL - 6}
-                y={y}
-                textAnchor="end"
-                dominantBaseline="central"
-                className="fill-zinc-500 text-[10px]"
-              >
+              <line x1={padL} y1={y} x2={width - padR} y2={y} className="stroke-zinc-200 dark:stroke-zinc-800" strokeWidth={1} />
+              <text x={padL - 6} y={y} textAnchor="end" dominantBaseline="central" className="fill-zinc-500 text-[10px]">
                 {fmt(t)}
               </text>
             </g>
@@ -1567,60 +2044,24 @@ function AnalyticsLineChart({
 
         {labels.map((label, i) => {
           if (i % xTickStride !== 0 && i !== n - 1) return null;
-          const x = xAt(i);
           return (
-            <text
-              key={`x-${label}`}
-              x={x}
-              y={height - padB + 16}
-              textAnchor="middle"
-              className="fill-zinc-500 text-[10px]"
-            >
+            <text key={`x-${label}`} x={xAt(i)} y={height - padB + 16} textAnchor="middle" className="fill-zinc-500 text-[10px]">
               {formatBucketLabel(label, period)}
             </text>
           );
         })}
 
-        <line
-          x1={padL}
-          y1={padT}
-          x2={padL}
-          y2={height - padB}
-          className="stroke-zinc-300 dark:stroke-zinc-700"
-          strokeWidth={1}
-        />
-        <line
-          x1={padL}
-          y1={height - padB}
-          x2={width - padR}
-          y2={height - padB}
-          className="stroke-zinc-300 dark:stroke-zinc-700"
-          strokeWidth={1}
-        />
+        <line x1={padL} y1={padT} x2={padL} y2={height - padB} className="stroke-zinc-300 dark:stroke-zinc-700" strokeWidth={1} />
+        <line x1={padL} y1={height - padB} x2={width - padR} y2={height - padB} className="stroke-zinc-300 dark:stroke-zinc-700" strokeWidth={1} />
 
         {series.map((s, si) => {
           const color = SERIES_COLORS[si % SERIES_COLORS.length];
-          const pathD = s.values
-            .map((v, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${yAt(v)}`)
-            .join(" ");
+          const pathD = s.values.map((v, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${yAt(v)}`).join(" ");
           return (
             <g key={`s-${s.name}`}>
-              <path
-                d={pathD}
-                fill="none"
-                stroke={color}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
+              <path d={pathD} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               {s.values.map((v, i) => (
-                <circle
-                  key={`p-${s.name}-${i}`}
-                  cx={xAt(i)}
-                  cy={yAt(v)}
-                  r={2.5}
-                  fill={color}
-                >
+                <circle key={`p-${s.name}-${i}`} cx={xAt(i)} cy={yAt(v)} r={2.5} fill={color}>
                   <title>{`${s.name} / ${formatBucketLabel(labels[i], period)}: ${fmt(v)}`}</title>
                 </circle>
               ))}
@@ -1633,11 +2074,7 @@ function AnalyticsLineChart({
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
           {series.map((s, si) => (
             <li key={s.name} className="flex items-center gap-1.5">
-              <span
-                aria-hidden
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ backgroundColor: SERIES_COLORS[si % SERIES_COLORS.length] }}
-              />
+              <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: SERIES_COLORS[si % SERIES_COLORS.length] }} />
               <span className="text-zinc-700 dark:text-zinc-200">{s.name}</span>
             </li>
           ))}
@@ -1649,12 +2086,10 @@ function AnalyticsLineChart({
 
 function formatBucketLabel(label: string, period: AnalyticsPeriod) {
   if (period === "daily") {
-    // "YYYY-MM-DD" → "M/D"
     const parts = label.split("-");
     if (parts.length !== 3) return label;
     return `${Number(parts[1])}/${Number(parts[2])}`;
   }
-  // "YYYY-MM" → "YY/M"
   const parts = label.split("-");
   if (parts.length !== 2) return label;
   return `${parts[0].slice(2)}/${Number(parts[1])}`;

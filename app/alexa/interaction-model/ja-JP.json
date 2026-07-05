@@ -18,6 +18,10 @@
           "samples": []
         },
         {
+          "name": "AMAZON.NoIntent",
+          "samples": ["大丈夫", "払い出さない", "いいえ", "結構です", "ありません"]
+        },
+        {
           "name": "AMAZON.CancelIntent",
           "samples": []
         },

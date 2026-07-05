@@ -145,3 +145,16 @@ coverage/
 **/.DS_Store
 
 doc/task.md
+doc/*.local.md
+
+# ============================================================
+# 一時ファイル / デモ用ファイル(本番反映対象外)
+# ============================================================
+*.bak
+*.bak.*
+*.bk
+doc/qr.md
+doc/qr.png
+
+# platform/alexa-server の依存物(他サービスの node_modules と同様に除外)
+platform/alexa-server/node_modules/

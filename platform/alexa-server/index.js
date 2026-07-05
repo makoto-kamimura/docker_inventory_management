@@ -1,4 +1,6 @@
 const Alexa = require('ask-sdk-core');
+const { ExpressAdapter } = require('ask-sdk-express-adapter');
+const express = require('express');
 const axios = require('axios');
 
 const apiClient = axios.create({
@@ -9,7 +11,7 @@ const apiClient = axios.create({
 
 async function getItems() {
   const { data } = await apiClient.get('/api/items');
-  return data;
+  return Array.isArray(data) ? data : (data.data || []);
 }
 
 async function decrementItem(itemId) {
@@ -22,10 +24,9 @@ function findItemByName(items, spokenName) {
     s
       .toLowerCase()
       .replace(/\s+/g, '')
-      .replace(/[ぁ-ん]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60)); // ひら→カタ
+      .replace(/[ぁ-ん]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
 
   const norm = normalize(spokenName);
-
   return (
     items.find((item) => normalize(item.name) === norm) ||
     items.find(
@@ -35,7 +36,7 @@ function findItemByName(items, spokenName) {
   );
 }
 
-// ── ハンドラー ─────────────────────────────────────────────
+// ── ハンドラー ────────────────────────────────────────────────────────────────
 
 const ELICIT_ITEM_INTENT = {
   name: 'DecrementStockIntent',
@@ -64,7 +65,6 @@ const DecrementStockIntentHandler = {
   },
   async handle(h) {
     const itemName = Alexa.getSlotValue(h.requestEnvelope, 'ItemName');
-    console.log('DecrementStockIntent itemName:', itemName);
 
     if (!itemName) {
       return h.responseBuilder
@@ -77,9 +77,6 @@ const DecrementStockIntentHandler = {
     let items;
     try {
       items = await getItems();
-      const arr = Array.isArray(items) ? items : (items.data || []);
-      console.log('getItems ok, isArray:', Array.isArray(items), 'count:', arr.length);
-      items = arr;
     } catch (e) {
       console.error('getItems error:', e.message);
       return h.responseBuilder
@@ -88,7 +85,6 @@ const DecrementStockIntentHandler = {
     }
 
     const item = findItemByName(items, itemName);
-    console.log('findItemByName:', item ? item.name : 'null');
 
     if (!item) {
       return h.responseBuilder
@@ -105,7 +101,6 @@ const DecrementStockIntentHandler = {
     let result;
     try {
       result = await decrementItem(item.id);
-      console.log('decrementItem ok, stock:', result.stock);
     } catch (err) {
       console.error('decrementItem error:', err.response?.status, err.message);
       if (err.response?.status === 409) {
@@ -121,11 +116,9 @@ const DecrementStockIntentHandler = {
     const remaining = result.stock;
     const suffix =
       remaining === 0 ? '在庫が0になりました。' : `残り${remaining}個です。`;
-    const speech = `${item.name}を1個払い出しました。${suffix}他に払い出すものはありますか？`;
-    console.log('speech:', speech);
 
     return h.responseBuilder
-      .speak(speech)
+      .speak(`${item.name}を1個払い出しました。${suffix}他に払い出すものはありますか？`)
       .reprompt('他に払い出すものはありますか？')
       .getResponse();
   },
@@ -147,22 +140,6 @@ const HelpIntentHandler = {
   },
 };
 
-const FallbackIntentHandler = {
-  canHandle(h) {
-    return (
-      Alexa.getRequestType(h.requestEnvelope) === 'IntentRequest' &&
-      Alexa.getIntentName(h.requestEnvelope) === 'AMAZON.FallbackIntent'
-    );
-  },
-  handle(h) {
-    return h.responseBuilder
-      .speak('すみません、聞き取れませんでした。払い出す品名を教えてください。')
-      .reprompt('払い出す品名を教えてください。')
-      .addElicitSlotDirective('ItemName', ELICIT_ITEM_INTENT)
-      .getResponse();
-  },
-};
-
 const NoIntentHandler = {
   canHandle(h) {
     return (
@@ -172,6 +149,20 @@ const NoIntentHandler = {
   },
   handle(h) {
     return h.responseBuilder.speak('在庫管理を閉じます。').getResponse();
+  },
+};
+
+const FallbackIntentHandler = {
+  canHandle(h) {
+    return (
+      Alexa.getRequestType(h.requestEnvelope) === 'IntentRequest' &&
+      Alexa.getIntentName(h.requestEnvelope) === 'AMAZON.FallbackIntent'
+    );
+  },
+  handle(h) {
+    return h.responseBuilder
+      .speak('すみません、お役に立てません。')
+      .getResponse();
   },
 };
 
@@ -194,7 +185,7 @@ const SessionEndedRequestHandler = {
     return Alexa.getRequestType(h.requestEnvelope) === 'SessionEndedRequest';
   },
   handle(h) {
-    console.log('SessionEnded reason:', JSON.stringify(h.requestEnvelope.request.reason));
+    console.log('SessionEnded reason:', h.requestEnvelope.request.reason);
     return h.responseBuilder.getResponse();
   },
 };
@@ -202,16 +193,16 @@ const SessionEndedRequestHandler = {
 const ErrorHandler = {
   canHandle: () => true,
   handle(h, error) {
-    console.error('RequestType:', Alexa.getRequestType(h.requestEnvelope));
-    try { console.error('IntentName:', Alexa.getIntentName(h.requestEnvelope)); } catch {}
-    console.error('Unhandled error:', error);
+    console.error('Unhandled error:', error.message);
     return h.responseBuilder
       .speak('エラーが発生しました。しばらくしてから再度お試しください。')
       .getResponse();
   },
 };
 
-exports.handler = Alexa.SkillBuilders.custom()
+// ── Express サーバー ──────────────────────────────────────────────────────────
+
+const skill = Alexa.SkillBuilders.custom()
   .addRequestHandlers(
     LaunchRequestHandler,
     DecrementStockIntentHandler,
@@ -222,4 +213,15 @@ exports.handler = Alexa.SkillBuilders.custom()
     SessionEndedRequestHandler
   )
   .addErrorHandlers(ErrorHandler)
-  .lambda();
+  .create();
+
+const adapter = new ExpressAdapter(skill, true, true);
+
+const app = express();
+app.post('/alexa', adapter.getRequestHandlers());
+
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, () => {
+  console.log(`Alexa skill server running on port ${PORT}`);
+  console.log(`API_BASE_URL: ${process.env.API_BASE_URL}`);
+});

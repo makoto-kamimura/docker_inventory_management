@@ -1,17 +1,26 @@
-FROM php:8.2-fpm
+# Laravel API — デモ環境用 PHP イメージ
+#
+# docker-compose.demo.yml から参照される。
+# アプリのソースコードは compose 側の volumes で bind mount するため、
+# このイメージは PHP 実行環境と Composer のみを提供する。
+#
+# ビルドコンテキスト: platform/docker/
+FROM php:8.2-cli-alpine
 
-# 必要なパッケージ & PHP拡張
-RUN apt-get update && apt-get install -y \
-    git zip unzip libpq-dev libonig-dev libxml2-dev \
-    netcat-openbsd \
-    && docker-php-ext-install pdo pdo_mysql mbstring xml
+# PHP 拡張に必要なシステムパッケージ
+RUN apk add --no-cache \
+        git \
+        unzip \
+        oniguruma-dev \
+        libxml2-dev \
+        netcat-openbsd \
+    && docker-php-ext-install \
+        pdo_mysql \
+        mbstring \
+        xml \
+        bcmath
 
-# Composer install
+# Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# 作業ディレクトリ
 WORKDIR /var/www
-
-# パーミッション設定
-RUN chown -R www-data:www-data /var/www \
-    && chmod -R 755 /var/www

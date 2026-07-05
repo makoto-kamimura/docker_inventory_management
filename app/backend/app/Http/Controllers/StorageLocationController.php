@@ -9,18 +9,21 @@ class StorageLocationController extends Controller
 {
     public function index()
     {
-        return StorageLocation::with('category')->orderByDesc('id')->get();
+        return StorageLocation::orderBy('description')->get();
     }
 
     public function store(Request $request)
     {
         $data = $request->validate([
-            'category_id' => 'required|integer|exists:categories,id',
             'description' => 'required|string|max:2000',
         ]);
 
-        $location = StorageLocation::create($data);
+        return StorageLocation::create($data);
+    }
 
-        return $location->load('category');
+    public function destroy(StorageLocation $storageLocation)
+    {
+        $storageLocation->delete();
+        return response()->noContent();
     }
 }

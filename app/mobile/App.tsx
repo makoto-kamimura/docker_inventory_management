@@ -4,12 +4,14 @@
 // これは Expo 54 ベースライン (初期テンプレートの App.tsx) でも同じく出る既知の上流問題。
 // 実行時には Babel/Metro が型を見ないため動作に影響はない。
 // react-native 型定義側で修正されたら本ディレクティブは削除して構わない。
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -29,18 +31,25 @@ import {
   setUnauthorizedHandler,
   type Category,
   type Item,
+  type ItemGroup,
   type ItemHistory,
   type StorageLocation,
   type User,
 } from "./src/api";
 
-type Tab = "list" | "category" | "item" | "storage";
+type Tab = "list" | "category" | "item" | "storage" | "group";
+
+function toLocalDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    // 401 を受けたら自動でログイン画面に戻す
     setUnauthorizedHandler(() => setUser(null));
     return () => setUnauthorizedHandler(null);
   }, []);
@@ -63,62 +72,58 @@ function InventoryApp({
 
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>([]);
+  const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // 在庫一覧の絞り込み: すべて / 在庫切れ (stock<=0) のみ
-  const [listFilter, setListFilter] = useState<"all" | "out_of_stock">("all");
-
-  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>(
-    [],
-  );
+  const [listFilter, setListFilter] = useState<"all" | "out_of_stock" | "expires_soon">("all");
 
   const [categoryName, setCategoryName] = useState("");
   const [itemName, setItemName] = useState("");
   const [itemCategoryId, setItemCategoryId] = useState<number | null>(null);
   const [itemStock, setItemStock] = useState("0");
+  const [itemGroupId, setItemGroupId] = useState<number | null>(null);
+  const [itemStorageLocationId, setItemStorageLocationId] = useState<number | null>(null);
+  const [itemAmount, setItemAmount] = useState("");
+  const [itemExpiresAt, setItemExpiresAt] = useState("");
+  const [showItemExpiresAtPicker, setShowItemExpiresAtPicker] = useState(false);
 
-  const [storageCategoryId, setStorageCategoryId] = useState<number | null>(
-    null,
-  );
   const [storageDescription, setStorageDescription] = useState("");
+  const [storageEditItem, setStorageEditItem] = useState<Item | null>(null);
+
+  const [newGroupName, setNewGroupName] = useState("");
 
   const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [histories, setHistories] = useState<ItemHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // カテゴリ変更対象 (null なら閉じている)
   const [categoryEditItem, setCategoryEditItem] = useState<Item | null>(null);
+  const [groupEditItem, setGroupEditItem] = useState<Item | null>(null);
+  const [nameEditItem, setNameEditItem] = useState<Item | null>(null);
 
-  // 在庫0からの補充時に金額を入力させる対象 (null なら閉じている)
   const [amountTarget, setAmountTarget] = useState<Item | null>(null);
 
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanProcessing, setScanProcessing] = useState(false);
-  // CameraView は 1 フレームごとに onBarcodeScanned を発火する (~30fps)。
-  // setState は非同期/バッチ更新なので state ガードは間に合わず多重発火する。
-  // 同期的に変更できる ref で実行中フラグを保持する。
   const scanInFlight = useRef(false);
-  // 未登録バーコード時に物品追加フォームへプリフィルする
   const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
-  // 指定した既存品にバーコードを後付けする時の対象 (null なら通常スキャン)
   const [barcodeTargetItem, setBarcodeTargetItem] = useState<Item | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [is, cs, sl] = await Promise.all([
+      const [is, cs, sl, gs] = await Promise.all([
         api.listItems(),
         api.listCategories(),
         api.listStorageLocations(),
+        api.listItemGroups(),
       ]);
       setItems(is);
       setCategories(cs);
       setStorageLocations(sl);
+      setItemGroups(gs);
       if (cs.length > 0 && itemCategoryId == null) {
         setItemCategoryId(cs[0].id);
-      }
-      if (cs.length > 0 && storageCategoryId == null) {
-        setStorageCategoryId(cs[0].id);
       }
     } catch (e) {
       Alert.alert("読み込みエラー", e instanceof Error ? e.message : String(e));
@@ -126,7 +131,7 @@ function InventoryApp({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [itemCategoryId, storageCategoryId]);
+  }, [itemCategoryId]);
 
   useEffect(() => {
     reload();
@@ -137,11 +142,34 @@ function InventoryApp({
     reload();
   };
 
+  // フィルタ: out_of_stock はグループ内全品目が在庫0の場合のみ表示
   const itemsByCategory = useMemo(() => {
-    const filtered =
-      listFilter === "out_of_stock"
-        ? items.filter((it) => it.stock <= 0)
-        : items;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let filtered: Item[];
+    if (listFilter === "out_of_stock") {
+      const groupedItems = items.filter((it) => it.group_id != null);
+      const stockByGroup = new Map<number, boolean>();
+      for (const it of groupedItems) {
+        const gid = it.group_id!;
+        if (!stockByGroup.has(gid)) stockByGroup.set(gid, false);
+        if (it.stock > 0) stockByGroup.set(gid, true);
+      }
+      filtered = items.filter((it) => {
+        if (it.group_id != null) return !stockByGroup.get(it.group_id);
+        return it.stock <= 0;
+      });
+    } else if (listFilter === "expires_soon") {
+      const soon = new Date(today);
+      soon.setDate(today.getDate() + 30);
+      filtered = items.filter((it) => {
+        if (!it.nearest_expires_at) return false;
+        return new Date(it.nearest_expires_at) <= soon;
+      });
+    } else {
+      filtered = items;
+    }
     const map = new Map<number, Item[]>();
     for (const c of categories) map.set(c.id, []);
     const orphan: Item[] = [];
@@ -166,6 +194,28 @@ function InventoryApp({
     }
   };
 
+  const handleDeleteCategory = (category: Category) => {
+    Alert.alert(
+      "カテゴリの削除",
+      `「${category.name}」を削除しますか？物品が登録されている場合は削除できません。`,
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.deleteCategory(category.id);
+              await reload();
+            } catch (e) {
+              Alert.alert("削除失敗", e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleAddItem = async () => {
     if (itemCategoryId == null) {
       Alert.alert("入力エラー", "カテゴリを選択してください");
@@ -174,15 +224,24 @@ function InventoryApp({
     const name = itemName.trim();
     if (!name) return;
     const stock = Math.max(0, Math.floor(Number(itemStock) || 0));
+    const parsedAmount = itemAmount.trim() === "" ? null : Math.floor(Number(itemAmount));
     try {
       await api.createItem({
         name,
         category_id: itemCategoryId,
         stock,
         barcode: pendingBarcode ?? null,
+        group_id: itemGroupId,
+        storage_location_id: itemStorageLocationId,
+        amount: stock > 0 ? (parsedAmount ?? null) : null,
+        expires_at: stock > 0 && itemExpiresAt.trim() ? itemExpiresAt.trim() : null,
       });
       setItemName("");
       setItemStock("0");
+      setItemGroupId(null);
+      setItemStorageLocationId(null);
+      setItemAmount("");
+      setItemExpiresAt("");
       setPendingBarcode(null);
       await reload();
       setTab("list");
@@ -192,22 +251,91 @@ function InventoryApp({
   };
 
   const handleAddStorage = async () => {
-    if (storageCategoryId == null) {
-      Alert.alert("入力エラー", "カテゴリを選択してください");
-      return;
-    }
     const description = storageDescription.trim();
     if (!description) return;
     try {
-      await api.createStorageLocation({
-        category_id: storageCategoryId,
-        description,
-      });
+      await api.createStorageLocation(description);
       setStorageDescription("");
       await reload();
       setTab("list");
     } catch (e) {
       Alert.alert("保管場所追加失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleSaveStorageLocation = async (item: Item, storageLocationId: number | null) => {
+    try {
+      await api.setItemStorageLocation(item.id, storageLocationId);
+      setStorageEditItem(null);
+      await reload();
+    } catch (e) {
+      Alert.alert("保管場所変更失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDeleteStorage = (sl: StorageLocation) => {
+    Alert.alert(
+      "保管場所の削除",
+      `「${sl.description}」を削除しますか？`,
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.deleteStorageLocation(sl.id);
+              await reload();
+            } catch (e) {
+              Alert.alert("削除失敗", e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleAddGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    try {
+      await api.createItemGroup(name);
+      setNewGroupName("");
+      await reload();
+    } catch (e) {
+      Alert.alert("グループ追加失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDeleteGroup = (group: ItemGroup) => {
+    Alert.alert(
+      "グループの削除",
+      `「${group.name}」を削除しますか？グループに属する品目のグループ設定は解除されます（品目は削除されません）。`,
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.deleteItemGroup(group.id);
+              await reload();
+            } catch (e) {
+              Alert.alert("削除失敗", e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleSaveGroup = async (item: Item, groupId: number | null) => {
+    try {
+      await api.setItemGroup(item.id, groupId);
+      setGroupEditItem(null);
+      await reload();
+    } catch (e) {
+      Alert.alert("グループ変更失敗", e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -223,37 +351,24 @@ function InventoryApp({
 
   const handleScanned = useCallback(
     async (barcode: string) => {
-      // ref で同期的に二重起動を弾く。state ガードはフレーム単位の発火に追いつかない。
       if (scanInFlight.current) return;
       scanInFlight.current = true;
       setScanProcessing(true);
       try {
-        // 既存品への付与モード
         if (barcodeTargetItem) {
-          const updated = await api.setItemBarcode(
-            barcodeTargetItem.id,
-            barcode,
-          );
+          const updated = await api.setItemBarcode(barcodeTargetItem.id, barcode);
           setScannerOpen(false);
           setBarcodeTargetItem(null);
           await reload();
-          Alert.alert(
-            "バーコードを設定しました",
-            `${updated.name}: ${barcode}`,
-          );
+          Alert.alert("バーコードを設定しました", `${updated.name}: ${barcode}`);
           return;
         }
-        // 通常スキャン (+1 / 在庫0で金額入力 / 未登録)
         const result = await api.scanBarcode(barcode);
         setScannerOpen(false);
         if (result.action === "incremented") {
           await reload();
-          Alert.alert(
-            "在庫を +1 しました",
-            `${result.item.name} (在庫: ${result.item.stock})`,
-          );
+          Alert.alert("在庫を +1 しました", `${result.item.name} (在庫: ${result.item.stock})`);
         } else if (result.action === "needs_amount") {
-          // 在庫切れからの補充: 金額モーダルを出してから +1 する
           setAmountTarget(result.item);
         } else {
           setPendingBarcode(result.barcode);
@@ -262,10 +377,7 @@ function InventoryApp({
           setTab("item");
         }
       } catch (e) {
-        Alert.alert(
-          "スキャン失敗",
-          e instanceof Error ? e.message : String(e),
-        );
+        Alert.alert("スキャン失敗", e instanceof Error ? e.message : String(e));
       } finally {
         setScanProcessing(false);
         scanInFlight.current = false;
@@ -296,10 +408,7 @@ function InventoryApp({
                 await api.setItemBarcode(item.id, null);
                 await reload();
               } catch (e) {
-                Alert.alert(
-                  "解除失敗",
-                  e instanceof Error ? e.message : String(e),
-                );
+                Alert.alert("解除失敗", e instanceof Error ? e.message : String(e));
               }
             },
           },
@@ -311,32 +420,59 @@ function InventoryApp({
     }
   };
 
+  const handleSaveName = async (item: Item, name: string) => {
+    try {
+      await api.setItemName(item.id, name);
+      setNameEditItem(null);
+      await reload();
+    } catch (e) {
+      Alert.alert("名前の変更失敗", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDeleteItem = (item: Item) => {
+    Alert.alert(
+      "物品の削除",
+      `「${item.name}」を削除しますか？この操作は取り消せません。`,
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.deleteItem(item.id);
+              await reload();
+            } catch (e) {
+              Alert.alert("削除失敗", e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleDecrement = async (item: Item) => {
     try {
       await api.decrementItem(item.id);
       await reload();
-      if (historyItem?.id === item.id) {
-        await openHistory(item);
-      }
+      if (historyItem?.id === item.id) await openHistory(item);
     } catch (e) {
       Alert.alert("払い出し失敗", e instanceof Error ? e.message : String(e));
     }
   };
 
-  const doIncrement = async (item: Item, amount: number | null = null) => {
+  const doIncrement = async (item: Item, amount: number | null = null, expiresAt: string | null = null) => {
     try {
-      await api.incrementItem(item.id, amount);
+      await api.incrementItem(item.id, amount, expiresAt);
       await reload();
-      if (historyItem?.id === item.id) {
-        await openHistory(item);
-      }
+      if (historyItem?.id === item.id) await openHistory(item);
     } catch (e) {
       Alert.alert("在庫増失敗", e instanceof Error ? e.message : String(e));
     }
   };
 
   const handleIncrement = (item: Item) => {
-    // 在庫0からの補充だけ金額入力モーダルを挟む。在庫>0 は従来どおり即時 +1。
     if (item.stock <= 0) {
       setAmountTarget(item);
       return;
@@ -344,9 +480,9 @@ function InventoryApp({
     void doIncrement(item, null);
   };
 
-  const handleConfirmAmount = async (item: Item, amount: number | null) => {
+  const handleConfirmAmount = async (item: Item, amount: number | null, expiresAt: string | null) => {
     setAmountTarget(null);
-    await doIncrement(item, amount);
+    await doIncrement(item, amount, expiresAt);
   };
 
   const handleMoveCategory = async (item: Item, categoryId: number) => {
@@ -373,13 +509,23 @@ function InventoryApp({
   };
 
   const categoryOptions = useMemo(
-    () =>
-      categories.map((c) => ({
-        ...c,
-        selected: c.id === itemCategoryId,
-      })),
+    () => categories.map((c) => ({ ...c, selected: c.id === itemCategoryId })),
     [categories, itemCategoryId],
   );
+
+  const addDisabled =
+    tab === "category" ? !categoryName.trim() :
+    tab === "item" ? (!itemName.trim() || itemCategoryId == null) :
+    tab === "storage" ? !storageDescription.trim() :
+    tab === "group" ? !newGroupName.trim() :
+    true;
+
+  const handleAddPress = () => {
+    if (tab === "category") void handleAddCategory();
+    else if (tab === "item") void handleAddItem();
+    else if (tab === "storage") void handleAddStorage();
+    else if (tab === "group") void handleAddGroup();
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -392,10 +538,7 @@ function InventoryApp({
             <Text style={styles.subtitle}>{user.name}</Text>
             <Pressable
               onPress={handleLogout}
-              style={({ pressed }) => [
-                styles.smallButton,
-                pressed && styles.smallButtonPressed,
-              ]}
+              style={({ pressed }) => [styles.smallButton, pressed && styles.smallButtonPressed]}
             >
               <Text style={styles.smallButtonText}>ログアウト</Text>
             </Pressable>
@@ -406,17 +549,17 @@ function InventoryApp({
 
       <View style={styles.tabBar}>
         <TabButton label="在庫一覧" active={tab === "list"} onPress={() => setTab("list")} />
-        <TabButton label="カテゴリ" active={tab === "category"} onPress={() => setTab("category")} />
         <TabButton label="物品" active={tab === "item"} onPress={() => setTab("item")} />
+        <TabButton label="カテゴリ" active={tab === "category"} onPress={() => setTab("category")} />
+        <TabButton label="グループ" active={tab === "group"} onPress={() => setTab("group")} />
         <TabButton label="保管場所" active={tab === "storage"} onPress={() => setTab("storage")} />
       </View>
 
+      {/* 在庫一覧 */}
       {tab === "list" && (
         <ScrollView
           contentContainerStyle={styles.scroll}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -425,20 +568,14 @@ function InventoryApp({
                 <Pressable
                   onPress={() => setScannerOpen(true)}
                   accessibilityLabel="バーコードスキャン"
-                  style={({ pressed }) => [
-                    styles.iconButton,
-                    pressed && styles.smallButtonPressed,
-                  ]}
+                  style={({ pressed }) => [styles.iconButton, pressed && styles.smallButtonPressed]}
                 >
                   <Text style={styles.iconButtonText}>⌖</Text>
                 </Pressable>
                 <Pressable
                   onPress={onRefresh}
                   accessibilityLabel="再読み込み"
-                  style={({ pressed }) => [
-                    styles.iconButton,
-                    pressed && styles.smallButtonPressed,
-                  ]}
+                  style={({ pressed }) => [styles.iconButton, pressed && styles.smallButtonPressed]}
                 >
                   <Text style={styles.iconButtonText}>↻</Text>
                 </Pressable>
@@ -449,29 +586,24 @@ function InventoryApp({
                 onPress={() => setListFilter("all")}
                 style={[styles.chip, listFilter === "all" && styles.chipSelected]}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    listFilter === "all" && styles.chipTextSelected,
-                  ]}
-                >
+                <Text style={[styles.chipText, listFilter === "all" && styles.chipTextSelected]}>
                   すべて
                 </Text>
               </Pressable>
               <Pressable
                 onPress={() => setListFilter("out_of_stock")}
-                style={[
-                  styles.chip,
-                  listFilter === "out_of_stock" && styles.chipSelected,
-                ]}
+                style={[styles.chip, listFilter === "out_of_stock" && styles.chipSelected]}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    listFilter === "out_of_stock" && styles.chipTextSelected,
-                  ]}
-                >
-                  在庫切れのみ
+                <Text style={[styles.chipText, listFilter === "out_of_stock" && styles.chipTextSelected]}>
+                  在庫切れ
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setListFilter("expires_soon")}
+                style={[styles.chip, listFilter === "expires_soon" && styles.chipSelected]}
+              >
+                <Text style={[styles.chipText, listFilter === "expires_soon" && styles.chipTextSelected]}>
+                  期限 1ヶ月以内
                 </Text>
               </Pressable>
             </View>
@@ -482,17 +614,19 @@ function InventoryApp({
             ) : (() => {
               const visibleCategories = categories.filter(
                 (c) =>
-                  listFilter !== "out_of_stock" ||
+                  listFilter === "all" ||
                   (itemsByCategory.map.get(c.id)?.length ?? 0) > 0,
               );
-              const hasAny =
-                visibleCategories.length > 0 ||
-                itemsByCategory.orphan.length > 0;
+              const hasAny = visibleCategories.length > 0 || itemsByCategory.orphan.length > 0;
               if (!hasAny) {
-                return (
-                  <Text style={styles.muted}>在庫切れの物品はありません</Text>
-                );
+                const emptyMsg =
+                  listFilter === "out_of_stock" ? "在庫切れの物品はありません" :
+                  listFilter === "expires_soon" ? "期限が1ヶ月以内の物品はありません" :
+                  "物品はありません";
+                return <Text style={styles.muted}>{emptyMsg}</Text>;
               }
+              const showAvgAmount = listFilter === "out_of_stock";
+              const showExpiresAt = listFilter === "expires_soon";
               return (
                 <View style={styles.groupList}>
                   {visibleCategories.map((c) => (
@@ -500,24 +634,36 @@ function InventoryApp({
                       key={c.id}
                       title={c.name}
                       items={itemsByCategory.map.get(c.id) ?? []}
-                      showAvgAmount={listFilter === "out_of_stock"}
+                      itemGroups={itemGroups}
+                      showAvgAmount={showAvgAmount}
+                      showExpiresAt={showExpiresAt}
                       onIncrement={handleIncrement}
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
                       onEditBarcode={openBarcodeScannerFor}
                       onMoveCategory={setCategoryEditItem}
+                      onEditGroup={setGroupEditItem}
+                      onEditStorageLocation={setStorageEditItem}
+                      onEditName={setNameEditItem}
+                      onDelete={handleDeleteItem}
                     />
                   ))}
                   {itemsByCategory.orphan.length > 0 && (
                     <CategoryGroup
                       title="(カテゴリ未設定)"
                       items={itemsByCategory.orphan}
-                      showAvgAmount={listFilter === "out_of_stock"}
+                      itemGroups={itemGroups}
+                      showAvgAmount={showAvgAmount}
+                      showExpiresAt={showExpiresAt}
                       onIncrement={handleIncrement}
                       onDecrement={handleDecrement}
                       onOpenHistory={openHistory}
                       onEditBarcode={openBarcodeScannerFor}
                       onMoveCategory={setCategoryEditItem}
+                      onEditGroup={setGroupEditItem}
+                      onEditStorageLocation={setStorageEditItem}
+                      onEditName={setNameEditItem}
+                      onDelete={handleDeleteItem}
                     />
                   )}
                 </View>
@@ -527,8 +673,9 @@ function InventoryApp({
         </ScrollView>
       )}
 
+      {/* カテゴリ管理 */}
       {tab === "category" && (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
           <View style={styles.card}>
             <Text style={styles.h2}>カテゴリ追加</Text>
             <TextInput
@@ -538,33 +685,46 @@ function InventoryApp({
               placeholder="例: 工具"
               placeholderTextColor="#9ca3af"
             />
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                (!categoryName.trim() || pressed) && styles.buttonPressed,
-              ]}
-              onPress={handleAddCategory}
-              disabled={!categoryName.trim()}
-            >
-              <Text style={styles.buttonText}>追加</Text>
-            </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.h2}>カテゴリ一覧</Text>
+            {loading ? (
+              <ActivityIndicator />
+            ) : categories.length === 0 ? (
+              <Text style={styles.muted}>カテゴリがありません</Text>
+            ) : (
+              <View>
+                {categories.map((c, idx) => (
+                  <View key={c.id}>
+                    {idx > 0 && <View style={styles.separator} />}
+                    <View style={styles.listRow}>
+                      <Text style={[styles.listRowText, { flex: 1 }]}>{c.name}</Text>
+                      <Pressable
+                        onPress={() => handleDeleteCategory(c)}
+                        style={({ pressed }) => [styles.deleteButton, pressed && styles.smallButtonPressed]}
+                      >
+                        <Text style={styles.deleteButtonText}>削除</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
       )}
 
+      {/* 物品追加 */}
       {tab === "item" && (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
           <View style={styles.card}>
             <Text style={styles.h2}>物品追加</Text>
             {pendingBarcode && (
               <View style={styles.barcodeNotice}>
                 <Text style={styles.barcodeNoticeLabel}>バーコード</Text>
                 <Text style={styles.barcodeNoticeValue}>{pendingBarcode}</Text>
-                <Pressable
-                  onPress={() => setPendingBarcode(null)}
-                  hitSlop={8}
-                  accessibilityLabel="バーコードを解除"
-                >
+                <Pressable onPress={() => setPendingBarcode(null)} hitSlop={8} accessibilityLabel="バーコードを解除">
                   <Text style={styles.barcodeNoticeClear}>×</Text>
                 </Pressable>
               </View>
@@ -587,12 +747,7 @@ function InventoryApp({
                     onPress={() => setItemCategoryId(c.id)}
                     style={[styles.chip, c.selected && styles.chipSelected]}
                   >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        c.selected && styles.chipTextSelected,
-                      ]}
-                    >
+                    <Text style={[styles.chipText, c.selected && styles.chipTextSelected]}>
                       {c.name}
                     </Text>
                   </Pressable>
@@ -606,54 +761,109 @@ function InventoryApp({
               onChangeText={setItemStock}
               keyboardType="number-pad"
             />
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                (!itemName.trim() ||
-                  itemCategoryId == null ||
-                  pressed) &&
-                  styles.buttonPressed,
-              ]}
-              onPress={handleAddItem}
-              disabled={!itemName.trim() || itemCategoryId == null}
-            >
-              <Text style={styles.buttonText}>追加</Text>
-            </Pressable>
+            {Number(itemStock) > 0 && (
+              <>
+                <Text style={styles.label}>単価 (任意)</Text>
+                <View style={styles.amountInputRow}>
+                  <Text style={styles.amountPrefix}>¥</Text>
+                  <TextInput
+                    style={[styles.input, styles.amountInputFlex]}
+                    value={itemAmount}
+                    onChangeText={setItemAmount}
+                    keyboardType="number-pad"
+                    placeholder="例: 1200"
+                    placeholderTextColor="#9ca3af"
+                  />
+                </View>
+                <Text style={styles.label}>期限 (任意)</Text>
+                <Pressable
+                  onPress={() => setShowItemExpiresAtPicker(true)}
+                  style={styles.datePickerButton}
+                >
+                  <Text style={itemExpiresAt ? styles.datePickerText : styles.datePickerPlaceholder}>
+                    {itemExpiresAt || "日付を選択"}
+                  </Text>
+                  {itemExpiresAt !== "" && (
+                    <Pressable onPress={() => setItemExpiresAt("")} hitSlop={8}>
+                      <Text style={styles.datePickerClear}>×</Text>
+                    </Pressable>
+                  )}
+                </Pressable>
+                {showItemExpiresAtPicker && (
+                  <DateTimePicker
+                    value={itemExpiresAt ? new Date(itemExpiresAt + "T12:00:00") : new Date()}
+                    mode="date"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={(event, selected) => {
+                      if (Platform.OS === "android") {
+                        setShowItemExpiresAtPicker(false);
+                        if (event.type === "set" && selected) setItemExpiresAt(toLocalDateString(selected));
+                      } else if (selected) {
+                        setItemExpiresAt(toLocalDateString(selected));
+                      }
+                    }}
+                  />
+                )}
+                {showItemExpiresAtPicker && Platform.OS === "ios" && (
+                  <Pressable onPress={() => setShowItemExpiresAtPicker(false)} style={styles.datePickerDoneRow}>
+                    <Text style={styles.link}>完了</Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+            <Text style={styles.label}>グループ (任意)</Text>
+            <View style={styles.chipRow}>
+              <Pressable
+                onPress={() => setItemGroupId(null)}
+                style={[styles.chip, itemGroupId == null && styles.chipSelected]}
+              >
+                <Text style={[styles.chipText, itemGroupId == null && styles.chipTextSelected]}>
+                  なし
+                </Text>
+              </Pressable>
+              {itemGroups.map((g) => (
+                <Pressable
+                  key={g.id}
+                  onPress={() => setItemGroupId(g.id)}
+                  style={[styles.chip, itemGroupId === g.id && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, itemGroupId === g.id && styles.chipTextSelected]}>
+                    {g.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.label}>保管場所 (任意)</Text>
+            <View style={styles.chipRow}>
+              <Pressable
+                onPress={() => setItemStorageLocationId(null)}
+                style={[styles.chip, itemStorageLocationId == null && styles.chipSelected]}
+              >
+                <Text style={[styles.chipText, itemStorageLocationId == null && styles.chipTextSelected]}>
+                  なし
+                </Text>
+              </Pressable>
+              {storageLocations.map((sl) => (
+                <Pressable
+                  key={sl.id}
+                  onPress={() => setItemStorageLocationId(sl.id)}
+                  style={[styles.chip, itemStorageLocationId === sl.id && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, itemStorageLocationId === sl.id && styles.chipTextSelected]}>
+                    {sl.description}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         </ScrollView>
       )}
 
+      {/* 保管場所管理 */}
       {tab === "storage" && (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
           <View style={styles.card}>
             <Text style={styles.h2}>保管場所追加</Text>
-            <Text style={styles.label}>カテゴリ</Text>
-            <View style={styles.chipRow}>
-              {categories.length === 0 ? (
-                <Text style={styles.muted}>(カテゴリ未登録)</Text>
-              ) : (
-                categories.map((c) => {
-                  const selected = c.id === storageCategoryId;
-                  return (
-                    <Pressable
-                      key={c.id}
-                      onPress={() => setStorageCategoryId(c.id)}
-                      style={[styles.chip, selected && styles.chipSelected]}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          selected && styles.chipTextSelected,
-                        ]}
-                      >
-                        {c.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })
-              )}
-            </View>
-            <Text style={styles.label}>保管場所 (自由記述)</Text>
             <TextInput
               style={[styles.input, styles.inputMultiline]}
               value={storageDescription}
@@ -662,19 +872,6 @@ function InventoryApp({
               placeholderTextColor="#9ca3af"
               multiline
             />
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                (!storageDescription.trim() ||
-                  storageCategoryId == null ||
-                  pressed) &&
-                  styles.buttonPressed,
-              ]}
-              onPress={handleAddStorage}
-              disabled={!storageDescription.trim() || storageCategoryId == null}
-            >
-              <Text style={styles.buttonText}>追加</Text>
-            </Pressable>
           </View>
 
           <View style={styles.card}>
@@ -689,12 +886,13 @@ function InventoryApp({
                   <View key={sl.id}>
                     {idx > 0 && <View style={styles.separator} />}
                     <View style={styles.storageRow}>
-                      <Text style={styles.storageDesc}>{sl.description}</Text>
-                      <View style={styles.storageBadge}>
-                        <Text style={styles.storageBadgeText}>
-                          {sl.category?.name ?? "(未設定)"}
-                        </Text>
-                      </View>
+                      <Text style={[styles.storageDesc, { flex: 1 }]}>{sl.description}</Text>
+                      <Pressable
+                        onPress={() => handleDeleteStorage(sl)}
+                        style={({ pressed }) => [styles.deleteButton, pressed && styles.smallButtonPressed]}
+                      >
+                        <Text style={styles.deleteButtonText}>削除</Text>
+                      </Pressable>
                     </View>
                   </View>
                 ))}
@@ -704,6 +902,94 @@ function InventoryApp({
         </ScrollView>
       )}
 
+      {/* グループ管理 */}
+      {tab === "group" && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
+          <View style={styles.card}>
+            <Text style={styles.h2}>グループ追加</Text>
+            <Text style={styles.muted}>
+              グループを作成し複数の品目をまとめます。在庫切れ表示ではグループ内に在庫がある品目が1つでもあればグループ全体が表示されません。
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={newGroupName}
+              onChangeText={setNewGroupName}
+              placeholder="例: トナーカートリッジ"
+              placeholderTextColor="#9ca3af"
+            />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.h2}>グループ一覧</Text>
+            {loading ? (
+              <ActivityIndicator />
+            ) : itemGroups.length === 0 ? (
+              <Text style={styles.muted}>グループがありません</Text>
+            ) : (
+              <View>
+                {itemGroups.map((g, idx) => {
+                  const members = items.filter((it) => it.group_id === g.id);
+                  return (
+                    <View key={g.id}>
+                      {idx > 0 && <View style={styles.separator} />}
+                      <View style={styles.groupManageRow}>
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.groupManageHeader}>
+                            <Text style={styles.groupManageTitle}>{g.name}</Text>
+                            <Text style={styles.muted}>{members.length} 品目</Text>
+                          </View>
+                          {members.length > 0 && (
+                            <View style={styles.groupMembers}>
+                              {members.map((it) => (
+                                <Text
+                                  key={it.id}
+                                  style={[styles.groupMemberText, it.stock <= 0 && styles.groupMemberEmpty]}
+                                >
+                                  {it.name} ({it.stock})
+                                </Text>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                        <Pressable
+                          onPress={() => handleDeleteGroup(g)}
+                          style={({ pressed }) => [styles.deleteButton, pressed && styles.smallButtonPressed]}
+                        >
+                          <Text style={styles.deleteButtonText}>削除</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* 固定フッター: 追加ボタン */}
+      {(tab === "category" || tab === "item" || tab === "storage" || tab === "group") && (
+        <View style={styles.fixedBottom}>
+          <Pressable
+            style={({ pressed }) => [styles.button, (addDisabled || pressed) && styles.buttonPressed]}
+            onPress={handleAddPress}
+            disabled={addDisabled}
+          >
+            <Text style={styles.buttonText}>追加</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* 品目名編集モーダル */}
+      {nameEditItem && (
+        <NameEditModal
+          item={nameEditItem}
+          onClose={() => setNameEditItem(null)}
+          onSave={handleSaveName}
+        />
+      )}
+
+      {/* AmountModal */}
       {amountTarget && (
         <AmountModal
           item={amountTarget}
@@ -712,188 +998,257 @@ function InventoryApp({
         />
       )}
 
-      <ScannerModal
-        visible={scannerOpen}
-        onClose={() => {
-          setScannerOpen(false);
-          setBarcodeTargetItem(null);
-        }}
-        onScanned={handleScanned}
-        processing={scanProcessing}
-        targetLabel={
-          barcodeTargetItem
-            ? `${barcodeTargetItem.name} にバーコードを設定`
-            : null
-        }
-      />
+      {/* バーコードスキャナー */}
+      {scannerOpen && (
+        <ScannerModal
+          onClose={() => {
+            setScannerOpen(false);
+            setBarcodeTargetItem(null);
+          }}
+          onScanned={handleScanned}
+          processing={scanProcessing}
+          targetLabel={barcodeTargetItem ? `${barcodeTargetItem.name} にバーコードを設定` : null}
+        />
+      )}
 
-      <Modal
-        visible={categoryEditItem !== null}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setCategoryEditItem(null)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setCategoryEditItem(null)}
+      {/* カテゴリ変更モーダル */}
+      {categoryEditItem && (
+        <Modal
+          visible
+          animationType="slide"
+          transparent
+          onRequestClose={() => setCategoryEditItem(null)}
         >
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.h2}>
-                {categoryEditItem?.name} のカテゴリ変更
-              </Text>
-              <Pressable onPress={() => setCategoryEditItem(null)}>
-                <Text style={styles.link}>閉じる</Text>
-              </Pressable>
-            </View>
-            {categories.length === 0 ? (
-              <Text style={styles.muted}>(カテゴリ未登録)</Text>
-            ) : (
+          <Pressable style={styles.modalBackdrop} onPress={() => setCategoryEditItem(null)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.h2}>{categoryEditItem.name} のカテゴリ変更</Text>
+                <Pressable onPress={() => setCategoryEditItem(null)}>
+                  <Text style={styles.link}>閉じる</Text>
+                </Pressable>
+              </View>
+              {categories.length === 0 ? (
+                <Text style={styles.muted}>(カテゴリ未登録)</Text>
+              ) : (
+                <View style={styles.chipRow}>
+                  {categories.map((c) => {
+                    const selected = c.id === categoryEditItem.category_id;
+                    return (
+                      <Pressable
+                        key={c.id}
+                        onPress={() => {
+                          if (!selected) handleMoveCategory(categoryEditItem, c.id);
+                        }}
+                        style={[styles.chip, selected && styles.chipSelected]}
+                      >
+                        <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                          {c.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
+      {/* グループ変更モーダル */}
+      {groupEditItem && (
+        <Modal
+          visible
+          animationType="slide"
+          transparent
+          onRequestClose={() => setGroupEditItem(null)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setGroupEditItem(null)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.h2}>{groupEditItem.name} のグループ変更</Text>
+                <Pressable onPress={() => setGroupEditItem(null)}>
+                  <Text style={styles.link}>閉じる</Text>
+                </Pressable>
+              </View>
               <View style={styles.chipRow}>
-                {categories.map((c) => {
-                  const selected = c.id === categoryEditItem?.category_id;
+                <Pressable
+                  onPress={() => {
+                    if (groupEditItem.group_id != null) handleSaveGroup(groupEditItem, null);
+                  }}
+                  style={[styles.chip, groupEditItem.group_id == null && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, groupEditItem.group_id == null && styles.chipTextSelected]}>
+                    グループなし
+                  </Text>
+                </Pressable>
+                {itemGroups.map((g) => {
+                  const selected = groupEditItem.group_id === g.id;
                   return (
                     <Pressable
-                      key={c.id}
+                      key={g.id}
                       onPress={() => {
-                        if (categoryEditItem && !selected) {
-                          handleMoveCategory(categoryEditItem, c.id);
-                        }
+                        if (!selected) handleSaveGroup(groupEditItem, g.id);
                       }}
                       style={[styles.chip, selected && styles.chipSelected]}
                     >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          selected && styles.chipTextSelected,
-                        ]}
-                      >
-                        {c.name}
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                        {g.name}
                       </Text>
                     </Pressable>
                   );
                 })}
               </View>
-            )}
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
+      )}
 
-      <Modal
-        visible={historyItem !== null}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setHistoryItem(null)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setHistoryItem(null)}
+      {/* 保管場所変更モーダル */}
+      {storageEditItem && (
+        <Modal
+          visible
+          animationType="slide"
+          transparent
+          onRequestClose={() => setStorageEditItem(null)}
         >
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.h2}>
-                {historyItem?.name} の履歴
-              </Text>
-              <Pressable onPress={() => setHistoryItem(null)}>
-                <Text style={styles.link}>閉じる</Text>
-              </Pressable>
-            </View>
-            {historyLoading ? (
-              <ActivityIndicator />
-            ) : histories.length === 0 ? (
-              <Text style={styles.muted}>履歴がありません</Text>
-            ) : (
-              <FlatList
-                data={histories}
-                keyExtractor={(h) => String(h.id)}
-                ItemSeparatorComponent={() => <View style={styles.separator} />}
-                renderItem={({ item: h }) => (
-                  <View style={styles.historyRow}>
-                    <View style={styles.historyLeft}>
-                      <Text style={styles.historyChange}>
-                        {h.change > 0 ? `+${h.change}` : String(h.change)}
+          <Pressable style={styles.modalBackdrop} onPress={() => setStorageEditItem(null)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.h2}>{storageEditItem.name} の保管場所</Text>
+                <Pressable onPress={() => setStorageEditItem(null)}>
+                  <Text style={styles.link}>閉じる</Text>
+                </Pressable>
+              </View>
+              <View style={styles.chipRow}>
+                <Pressable
+                  onPress={() => {
+                    if (storageEditItem.storage_location_id != null)
+                      handleSaveStorageLocation(storageEditItem, null);
+                  }}
+                  style={[styles.chip, storageEditItem.storage_location_id == null && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, storageEditItem.storage_location_id == null && styles.chipTextSelected]}>
+                    なし
+                  </Text>
+                </Pressable>
+                {storageLocations.map((sl) => {
+                  const selected = storageEditItem.storage_location_id === sl.id;
+                  return (
+                    <Pressable
+                      key={sl.id}
+                      onPress={() => {
+                        if (!selected) handleSaveStorageLocation(storageEditItem, sl.id);
+                      }}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                    >
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                        {sl.description}
                       </Text>
-                      {h.amount != null && (
-                        <Text style={styles.historyAmount}>
-                          ¥{h.amount.toLocaleString("ja-JP")}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={styles.historyMeta}>
-                      <Text style={styles.muted}>
-                        {new Date(h.changed_at).toLocaleString("ja-JP")}
-                      </Text>
-                      <Text style={styles.historyUser}>
-                        {h.user?.name ?? "不明"}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              />
-            )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
+      )}
+
+      {/* 履歴モーダル */}
+      {historyItem && (
+        <Modal
+          visible
+          animationType="slide"
+          transparent
+          onRequestClose={() => setHistoryItem(null)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setHistoryItem(null)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.h2}>{historyItem.name} の履歴</Text>
+                <Pressable onPress={() => setHistoryItem(null)}>
+                  <Text style={styles.link}>閉じる</Text>
+                </Pressable>
+              </View>
+              {historyLoading ? (
+                <ActivityIndicator />
+              ) : histories.length === 0 ? (
+                <Text style={styles.muted}>履歴がありません</Text>
+              ) : (
+                <FlatList
+                  data={histories}
+                  keyExtractor={(h) => String(h.id)}
+                  ItemSeparatorComponent={() => <View style={styles.separator} />}
+                  renderItem={({ item: h }) => (
+                    <View style={styles.historyRow}>
+                      <View style={styles.historyLeft}>
+                        <Text style={styles.historyChange}>
+                          {h.change > 0 ? `+${h.change}` : String(h.change)}
+                        </Text>
+                        <View>
+                          {h.amount != null && (
+                            <Text style={styles.historyAmount}>
+                              ¥{h.amount.toLocaleString("ja-JP")}
+                            </Text>
+                          )}
+                          {h.expires_at != null && (
+                            <Text style={styles.historyExpires}>
+                              期限 {h.expires_at}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      <View style={styles.historyMeta}>
+                        <Text style={styles.muted}>
+                          {new Date(h.changed_at).toLocaleString("ja-JP")}
+                        </Text>
+                        <Text style={styles.historyUser}>{h.user?.name ?? "不明"}</Text>
+                      </View>
+                    </View>
+                  )}
+                />
+              )}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
 
 function ScannerModal({
-  visible,
   onClose,
   onScanned,
   processing,
   targetLabel,
 }: {
-  visible: boolean;
   onClose: () => void;
   onScanned: (barcode: string) => void;
   processing: boolean;
   targetLabel?: string | null;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
-  // CameraView は毎フレーム発火するので、state ではなく ref で同期ガードする。
-  // 一度ハンドラを呼んだら次にモーダルが開き直されるまで再発火させない。
   const handledRef = useRef(false);
 
-  useEffect(() => {
-    if (visible) handledRef.current = false;
-  }, [visible]);
-
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      onRequestClose={onClose}
-      presentationStyle="fullScreen"
-    >
+    <Modal visible animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
       <SafeAreaView style={styles.scannerSafe}>
         <View style={styles.scannerHeader}>
           <View style={{ flexShrink: 1 }}>
             <Text style={styles.scannerTitle}>バーコードをスキャン</Text>
-            {targetLabel && (
-              <Text style={styles.scannerTarget}>{targetLabel}</Text>
-            )}
+            {targetLabel && <Text style={styles.scannerTarget}>{targetLabel}</Text>}
           </View>
           <Pressable onPress={onClose} hitSlop={10}>
             <Text style={styles.scannerClose}>閉じる</Text>
           </Pressable>
         </View>
         {!permission ? (
-          <View style={styles.scannerBody}>
-            <ActivityIndicator />
-          </View>
+          <View style={styles.scannerBody}><ActivityIndicator /></View>
         ) : !permission.granted ? (
           <View style={styles.scannerBody}>
-            <Text style={styles.scannerHint}>
-              カメラへのアクセスが許可されていません。
-            </Text>
+            <Text style={styles.scannerHint}>カメラへのアクセスが許可されていません。</Text>
             <Pressable
               onPress={requestPermission}
-              style={({ pressed }) => [
-                styles.button,
-                pressed && styles.buttonPressed,
-              ]}
+              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
             >
               <Text style={styles.buttonText}>権限をリクエスト</Text>
             </Pressable>
@@ -903,19 +1258,9 @@ function ScannerModal({
             <CameraView
               style={styles.cameraView}
               barcodeScannerSettings={{
-                barcodeTypes: [
-                  "ean13",
-                  "ean8",
-                  "upc_a",
-                  "upc_e",
-                  "code128",
-                  "code39",
-                  "code93",
-                  "qr",
-                ],
+                barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "code93", "qr"],
               }}
               onBarcodeScanned={({ data }) => {
-                // ref ガードで同期的に弾く。state ベースだと毎フレーム発火に追いつかない。
                 if (handledRef.current) return;
                 handledRef.current = true;
                 onScanned(data);
@@ -925,9 +1270,7 @@ function ScannerModal({
               <View style={styles.scannerFrame} />
             </View>
             <Text style={styles.scannerHint}>
-              {processing
-                ? "処理中..."
-                : "枠内にバーコードを収めてください"}
+              {processing ? "処理中..." : "枠内にバーコードを収めてください"}
             </Text>
           </View>
         )}
@@ -984,21 +1327,106 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
             placeholderTextColor="#9ca3af"
           />
           <Pressable
-            style={({ pressed }) => [
-              styles.button,
-              (disabled || pressed) && styles.buttonPressed,
-            ]}
+            style={({ pressed }) => [styles.button, (disabled || pressed) && styles.buttonPressed]}
             onPress={submit}
             disabled={disabled}
           >
-            <Text style={styles.buttonText}>
-              {submitting ? "ログイン中..." : "ログイン"}
-            </Text>
+            <Text style={styles.buttonText}>{submitting ? "ログイン中..." : "ログイン"}</Text>
           </Pressable>
           <Text style={styles.subtitle}>API: {apiBaseUrl}</Text>
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+function NameEditModal({
+  item,
+  onClose,
+  onSave,
+}: {
+  item: Item;
+  onClose: () => void;
+  onSave: (item: Item, name: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(item.name);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onClose]);
+
+  const canSave = value.trim().length > 0 && value.trim() !== item.name && !saving;
+
+  const submit = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await onSave(item, value.trim());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        style={styles.modalFill}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={onClose}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.h2}>品目名の編集</Text>
+              <Pressable onPress={onClose}>
+                <Text style={styles.link}>閉じる</Text>
+              </Pressable>
+            </View>
+            <TextInput
+              style={styles.input}
+              value={value}
+              onChangeText={setValue}
+              maxLength={255}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={() => { void submit(); }}
+            />
+            <View style={styles.amountActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.smallButton,
+                  (saving || pressed) && styles.smallButtonPressed,
+                ]}
+                onPress={onClose}
+                disabled={saving}
+              >
+                <Text style={styles.smallButtonText}>キャンセル</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.amountConfirm,
+                  (!canSave || pressed) && styles.buttonPressed,
+                ]}
+                onPress={() => { void submit(); }}
+                disabled={!canSave}
+              >
+                <Text style={styles.buttonText}>保存</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -1009,15 +1437,26 @@ function AmountModal({
 }: {
   item: Item;
   onClose: () => void;
-  onConfirm: (item: Item, amount: number | null) => void | Promise<void>;
+  onConfirm: (item: Item, amount: number | null, expiresAt: string | null) => void | Promise<void>;
 }) {
   const [value, setValue] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onClose]);
 
   const submit = async (amount: number | null) => {
     setSaving(true);
     try {
-      await onConfirm(item, amount);
+      const ea = expiresAt.trim() !== "" ? expiresAt.trim() : null;
+      await onConfirm(item, amount, ea);
     } finally {
       setSaving(false);
     }
@@ -1027,17 +1466,14 @@ function AmountModal({
   const invalid = parsed != null && (!isFinite(parsed) || parsed < 0);
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <View style={StyleSheet.absoluteFillObject}>
       <KeyboardAvoidingView
         style={styles.modalFill}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <Pressable style={styles.modalBackdrop} onPress={onClose}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.amountScrollContent}
-            >
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.amountScrollContent}>
               <View style={styles.cardHeader}>
                 <Text style={styles.h2}>{item.name} の補充 (+1)</Text>
                 <Pressable onPress={onClose}>
@@ -1045,8 +1481,9 @@ function AmountModal({
                 </Pressable>
               </View>
               <Text style={styles.muted}>
-                在庫切れからの補充です。金額 (円) を入力してください。未入力でも追加できます。
+                在庫切れからの補充です。金額と期限を入力してください（どちらも任意）。
               </Text>
+              <Text style={styles.label}>金額 (円)</Text>
               <TextInput
                 style={styles.input}
                 value={value}
@@ -1056,6 +1493,40 @@ function AmountModal({
                 placeholderTextColor="#9ca3af"
                 autoFocus
               />
+              <Text style={styles.label}>期限 (任意)</Text>
+              <Pressable
+                onPress={() => setShowDatePicker(true)}
+                style={styles.datePickerButton}
+              >
+                <Text style={expiresAt ? styles.datePickerText : styles.datePickerPlaceholder}>
+                  {expiresAt || "日付を選択"}
+                </Text>
+                {expiresAt !== "" && (
+                  <Pressable onPress={() => setExpiresAt("")} hitSlop={8}>
+                    <Text style={styles.datePickerClear}>×</Text>
+                  </Pressable>
+                )}
+              </Pressable>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={expiresAt ? new Date(expiresAt + "T12:00:00") : new Date()}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={(event, selected) => {
+                    if (Platform.OS === "android") {
+                      setShowDatePicker(false);
+                      if (event.type === "set" && selected) setExpiresAt(toLocalDateString(selected));
+                    } else if (selected) {
+                      setExpiresAt(toLocalDateString(selected));
+                    }
+                  }}
+                />
+              )}
+              {showDatePicker && Platform.OS === "ios" && (
+                <Pressable onPress={() => setShowDatePicker(false)} style={styles.datePickerDoneRow}>
+                  <Text style={styles.link}>完了</Text>
+                </Pressable>
+              )}
               <View style={styles.amountActions}>
                 <Pressable
                   style={({ pressed }) => [
@@ -1083,7 +1554,7 @@ function AmountModal({
           </Pressable>
         </Pressable>
       </KeyboardAvoidingView>
-    </Modal>
+    </View>
   );
 }
 
@@ -1105,9 +1576,7 @@ function TabButton({
         pressed && styles.tabButtonPressed,
       ]}
     >
-      <Text style={[styles.tabButtonText, active && styles.tabButtonTextActive]}>
-        {label}
-      </Text>
+      <Text style={[styles.tabButtonText, active && styles.tabButtonTextActive]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1115,22 +1584,37 @@ function TabButton({
 function CategoryGroup({
   title,
   items,
+  itemGroups,
   showAvgAmount = false,
+  showExpiresAt = false,
   onIncrement,
   onDecrement,
   onOpenHistory,
   onEditBarcode,
   onMoveCategory,
+  onEditGroup,
+  onEditStorageLocation,
+  onEditName,
+  onDelete,
 }: {
   title: string;
   items: Item[];
+  itemGroups: ItemGroup[];
   showAvgAmount?: boolean;
+  showExpiresAt?: boolean;
   onIncrement: (item: Item) => void;
   onDecrement: (item: Item) => void;
   onOpenHistory: (item: Item) => void;
   onEditBarcode: (item: Item) => void;
   onMoveCategory: (item: Item) => void;
+  onEditGroup: (item: Item) => void;
+  onEditStorageLocation: (item: Item) => void;
+  onEditName: (item: Item) => void;
+  onDelete: (item: Item) => void;
 }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   return (
     <View style={styles.group}>
       <View style={styles.groupHeader}>
@@ -1139,94 +1623,137 @@ function CategoryGroup({
       </View>
       {items.length === 0 ? null : (
         <View>
-          {items.map((item, idx) => (
-            <View key={item.id}>
-              {idx > 0 && <View style={styles.separator} />}
-              <View style={styles.row}>
-                <View style={styles.rowLeft}>
-                  <Text style={styles.rowTitle}>{item.name}</Text>
-                  <Pressable
-                    onPress={() => onEditBarcode(item)}
-                    hitSlop={6}
-                    accessibilityLabel="バーコードを設定"
-                  >
-                    <Text style={styles.barcodeLine}>
-                      <Text style={styles.barcodeIcon}>▮▮▮ </Text>
-                      {item.barcode ? (
-                        <Text style={styles.barcodeValue}>
-                          {item.barcode}
-                        </Text>
-                      ) : (
-                        <Text style={styles.barcodeMuted}>未設定</Text>
-                      )}
-                      <Text style={styles.barcodeMuted}>  ✎</Text>
-                    </Text>
-                  </Pressable>
-                  {showAvgAmount &&
-                    item.avg_amount != null &&
-                    Number(item.avg_amount) > 0 && (
-                      <Text style={styles.avgAmountLine}>
-                        平均単価 ¥
-                        {Math.round(Number(item.avg_amount)).toLocaleString(
-                          "ja-JP",
+          {items.map((item, idx) => {
+            const groupName = item.group?.name ?? null;
+            const isExpired =
+              item.nearest_expires_at != null &&
+              new Date(item.nearest_expires_at) < today;
+            return (
+              <View key={item.id}>
+                {idx > 0 && <View style={styles.separator} />}
+                <View style={styles.row}>
+                  <View style={styles.rowLeft}>
+                    <View style={styles.rowTitleRow}>
+                      <Text style={styles.rowTitle}>{item.name}</Text>
+                      <Pressable
+                        onPress={() => onEditName(item)}
+                        hitSlop={8}
+                        accessibilityLabel="名前を編集"
+                      >
+                        <Text style={styles.barcodeMuted}>✎</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable
+                      onPress={() => onEditBarcode(item)}
+                      hitSlop={6}
+                      accessibilityLabel="バーコードを設定"
+                    >
+                      <Text style={styles.barcodeLine}>
+                        <Text style={styles.barcodeIcon}>▮▮▮ </Text>
+                        {item.barcode ? (
+                          <Text style={styles.barcodeValue}>{item.barcode}</Text>
+                        ) : (
+                          <Text style={styles.barcodeMuted}>未設定</Text>
                         )}
+                        <Text style={styles.barcodeMuted}>  ✎</Text>
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onEditGroup(item)}
+                      hitSlop={6}
+                      accessibilityLabel="グループを設定"
+                    >
+                      <Text style={styles.groupLine}>
+                        <Text style={styles.barcodeIcon}>⊞ </Text>
+                        {groupName ? (
+                          <Text style={styles.groupBadgeText}>{groupName}</Text>
+                        ) : (
+                          <Text style={styles.barcodeMuted}>グループ未設定</Text>
+                        )}
+                        <Text style={styles.barcodeMuted}>  ✎</Text>
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onEditStorageLocation(item)}
+                      hitSlop={6}
+                      accessibilityLabel="保管場所を設定"
+                    >
+                      <Text style={styles.groupLine}>
+                        <Text style={styles.barcodeIcon}>📍 </Text>
+                        {item.storage_location ? (
+                          <Text style={styles.groupBadgeText}>{item.storage_location.description}</Text>
+                        ) : (
+                          <Text style={styles.barcodeMuted}>保管場所未設定</Text>
+                        )}
+                        <Text style={styles.barcodeMuted}>  ✎</Text>
+                      </Text>
+                    </Pressable>
+                    {showAvgAmount &&
+                      item.avg_amount != null &&
+                      Number(item.avg_amount) > 0 && (
+                        <Text style={styles.avgAmountLine}>
+                          平均単価 ¥
+                          {Math.round(Number(item.avg_amount)).toLocaleString("ja-JP")}
+                        </Text>
+                      )}
+                    {showExpiresAt && item.nearest_expires_at != null && (
+                      <Text
+                        style={[
+                          styles.expiresAtLine,
+                          isExpired ? styles.expiresAtExpired : styles.expiresAtSoon,
+                        ]}
+                      >
+                        期限 {item.nearest_expires_at}
                       </Text>
                     )}
-                </View>
-                <View style={styles.rowRight}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.iconButton,
-                      (item.stock <= 0 || pressed) &&
-                        styles.smallButtonPressed,
-                    ]}
-                    onPress={() => onDecrement(item)}
-                    disabled={item.stock <= 0}
-                    accessibilityLabel="在庫減 (-1)"
-                  >
-                    <Text style={styles.iconButtonText}>−</Text>
-                  </Pressable>
-                  <Text
-                    style={[
-                      styles.stock,
-                      item.stock === 0 && styles.stockEmpty,
-                    ]}
-                  >
-                    {item.stock}
-                  </Text>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.iconButton,
-                      pressed && styles.smallButtonPressed,
-                    ]}
-                    onPress={() => onIncrement(item)}
-                    accessibilityLabel="在庫増 (+1)"
-                  >
-                    <Text style={styles.iconButtonText}>＋</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.smallButton,
-                      pressed && styles.smallButtonPressed,
-                    ]}
-                    onPress={() => onMoveCategory(item)}
-                    accessibilityLabel="カテゴリを変更"
-                  >
-                    <Text style={styles.smallButtonText}>移動</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.smallButton,
-                      pressed && styles.smallButtonPressed,
-                    ]}
-                    onPress={() => onOpenHistory(item)}
-                  >
-                    <Text style={styles.smallButtonText}>履歴</Text>
-                  </Pressable>
+                  </View>
+                  <View style={styles.rowRight}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.iconButton,
+                        (item.stock <= 0 || pressed) && styles.smallButtonPressed,
+                      ]}
+                      onPress={() => onDecrement(item)}
+                      disabled={item.stock <= 0}
+                      accessibilityLabel="在庫減 (-1)"
+                    >
+                      <Text style={styles.iconButtonText}>−</Text>
+                    </Pressable>
+                    <Text style={[styles.stock, item.stock === 0 && styles.stockEmpty]}>
+                      {item.stock}
+                    </Text>
+                    <Pressable
+                      style={({ pressed }) => [styles.iconButton, pressed && styles.smallButtonPressed]}
+                      onPress={() => onIncrement(item)}
+                      accessibilityLabel="在庫増 (+1)"
+                    >
+                      <Text style={styles.iconButtonText}>＋</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.smallButton, pressed && styles.smallButtonPressed]}
+                      onPress={() => onMoveCategory(item)}
+                      accessibilityLabel="カテゴリを変更"
+                    >
+                      <Text style={styles.smallButtonText}>移動</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.smallButton, pressed && styles.smallButtonPressed]}
+                      onPress={() => onOpenHistory(item)}
+                    >
+                      <Text style={styles.smallButtonText}>履歴</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.deleteButton, pressed && styles.smallButtonPressed]}
+                      onPress={() => onDelete(item)}
+                      accessibilityLabel="削除"
+                    >
+                      <Text style={styles.deleteButtonText}>削除</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
       )}
     </View>
@@ -1265,14 +1792,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   storageDesc: { flexShrink: 1, fontSize: 14, color: "#0f172a" },
-  storageBadge: {
-    flexShrink: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: "#f1f5f9",
-  },
-  storageBadgeText: { fontSize: 11, color: "#475569" },
   h2: { fontSize: 16, fontWeight: "600", color: "#0f172a" },
   tabBar: {
     flexDirection: "row",
@@ -1282,14 +1801,14 @@ const styles = StyleSheet.create({
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: "center",
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
   tabButtonActive: { borderBottomColor: "#0f172a" },
   tabButtonPressed: { opacity: 0.5 },
-  tabButtonText: { fontSize: 13, color: "#64748b" },
+  tabButtonText: { fontSize: 11, color: "#64748b" },
   tabButtonTextActive: { color: "#0f172a", fontWeight: "600" },
   card: {
     backgroundColor: "#fff",
@@ -1366,24 +1885,29 @@ const styles = StyleSheet.create({
     rowGap: 8,
     columnGap: 12,
   },
-  // 名前側に最小幅を確保し、ボタン群が増えても潰れず読めるようにする。
-  // 幅が足りなければ row の flexWrap でボタン群が次行へ折り返す。
   rowLeft: { flexShrink: 1, flexGrow: 1, minWidth: 150 },
   rowRight: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { fontSize: 15, fontWeight: "500", color: "#0f172a" },
+  rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   barcodeLine: { fontSize: 11, marginTop: 2, lineHeight: 14 },
   barcodeIcon: { color: "#94a3b8", letterSpacing: -1 },
-  barcodeValue: {
-    color: "#475569",
-    fontVariant: ["tabular-nums"],
-  },
+  barcodeValue: { color: "#475569", fontVariant: ["tabular-nums"] },
   barcodeMuted: { color: "#94a3b8", fontStyle: "italic" },
+  groupLine: { fontSize: 11, marginTop: 3, lineHeight: 14 },
+  groupBadgeText: { color: "#374151", backgroundColor: "#f3f4f6" },
   avgAmountLine: {
     fontSize: 12,
     marginTop: 2,
     color: "#059669",
     fontVariant: ["tabular-nums"],
   },
+  expiresAtLine: {
+    fontSize: 12,
+    marginTop: 2,
+    fontVariant: ["tabular-nums"],
+  },
+  expiresAtSoon: { color: "#d97706" },
+  expiresAtExpired: { color: "#dc2626" },
   stock: {
     fontSize: 16,
     fontVariant: ["tabular-nums"],
@@ -1402,6 +1926,15 @@ const styles = StyleSheet.create({
   },
   smallButtonPressed: { opacity: 0.5 },
   smallButtonText: { fontSize: 13, color: "#0f172a" },
+  deleteButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+    backgroundColor: "#fff",
+  },
+  deleteButtonText: { fontSize: 13, color: "#b91c1c" },
   iconButton: {
     width: 32,
     height: 32,
@@ -1412,11 +1945,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconButtonText: {
-    fontSize: 18,
-    lineHeight: 20,
-    color: "#0f172a",
-  },
+  iconButtonText: { fontSize: 18, lineHeight: 20, color: "#0f172a" },
   headerActions: { flexDirection: "row", gap: 8 },
   barcodeNotice: {
     flexDirection: "row",
@@ -1488,11 +2017,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     gap: 12,
-    maxHeight: "70%",
+    maxHeight: "80%",
   },
   historyRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     paddingVertical: 8,
   },
@@ -1503,11 +2032,16 @@ const styles = StyleSheet.create({
   },
   historyMeta: { alignItems: "flex-end" },
   historyUser: { fontSize: 11, color: "#94a3b8" },
-  historyLeft: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  historyLeft: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   historyAmount: {
     fontSize: 12,
     color: "#059669",
     fontVariant: ["tabular-nums"],
+  },
+  historyExpires: {
+    fontSize: 11,
+    color: "#d97706",
+    marginTop: 2,
   },
   amountActions: {
     flexDirection: "row",
@@ -1517,4 +2051,60 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   amountConfirm: { paddingHorizontal: 16 },
+  amountInputRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  amountPrefix: { fontSize: 14, color: "#64748b" },
+  amountInputFlex: { flex: 1 },
+  datePickerButton: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+  },
+  datePickerText: { fontSize: 14, color: "#0f172a" },
+  datePickerPlaceholder: { fontSize: 14, color: "#9ca3af" },
+  datePickerClear: { fontSize: 18, color: "#94a3b8", paddingHorizontal: 4 },
+  datePickerDoneRow: { alignItems: "flex-end", paddingTop: 4 },
+  fixedBottom: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    backgroundColor: "#fff",
+  },
+  storageLine: {
+    fontSize: 11,
+    color: "#94a3b8",
+    marginTop: 2,
+  },
+  // カテゴリ/保管場所一覧行
+  listRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    gap: 12,
+  },
+  listRowText: { flex: 1, fontSize: 14, color: "#0f172a" },
+  // グループ管理
+  groupManageRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    gap: 12,
+  },
+  groupManageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  groupManageTitle: { fontSize: 14, fontWeight: "600", color: "#0f172a" },
+  groupMembers: { paddingLeft: 4, gap: 2 },
+  groupMemberText: { fontSize: 12, color: "#64748b" },
+  groupMemberEmpty: { color: "#dc2626" },
 });

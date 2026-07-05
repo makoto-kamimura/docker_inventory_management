@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StorageLocation extends Model
 {
-    protected $fillable = ['category_id', 'description'];
+    protected $fillable = ['description'];
 
     public function category(): BelongsTo
     {

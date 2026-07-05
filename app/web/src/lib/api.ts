@@ -20,23 +20,34 @@ export type Item = {
   id: number;
   name: string;
   category_id: number;
+  group_id?: number | null;
+  storage_location_id?: number | null;
   stock: number;
   barcode?: string | null;
   // 過去に単価入力のある履歴の平均金額 (円)。一度も入力がなければ null。
   // MySQL の DECIMAL は文字列で返るため number | string の両方を許容する。
   avg_amount?: number | string | null;
+  nearest_expires_at?: string | null;
   created_at?: string;
   updated_at?: string;
   category?: Category;
+  group?: ItemGroup | null;
+  storage_location?: StorageLocation | null;
+};
+
+export type ItemGroup = {
+  id: number;
+  name: string;
+  items_count?: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type StorageLocation = {
   id: number;
-  category_id: number;
   description: string;
   created_at?: string;
   updated_at?: string;
-  category?: Category;
 };
 
 export type ItemHistory = {
@@ -45,6 +56,7 @@ export type ItemHistory = {
   user_id?: number | null;
   change: number;
   amount?: number | null;
+  expires_at?: string | null;
   changed_at: string;
   created_at?: string;
   updated_at?: string;
@@ -159,23 +171,58 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
+  deleteCategory: (id: number) =>
+    request<void>(`/api/categories/${id}`, { method: "DELETE" }),
+
   // --- 保管場所 ---
   listStorageLocations: () =>
     request<StorageLocation[]>("/api/storage-locations"),
 
-  createStorageLocation: (input: {
-    category_id: number;
-    description: string;
-  }) =>
+  createStorageLocation: (description: string) =>
     request<StorageLocation>("/api/storage-locations", {
       method: "POST",
-      body: JSON.stringify(input),
+      body: JSON.stringify({ description }),
+    }),
+
+  deleteStorageLocation: (id: number) =>
+    request<void>(`/api/storage-locations/${id}`, { method: "DELETE" }),
+
+  setItemStorageLocation: (id: number, storage_location_id: number | null) =>
+    request<Item>(`/api/items/${id}/storage-location`, {
+      method: "PUT",
+      body: JSON.stringify({ storage_location_id }),
+    }),
+
+  // --- グループ ---
+  listItemGroups: () => request<ItemGroup[]>("/api/item-groups"),
+
+  createItemGroup: (name: string) =>
+    request<ItemGroup>("/api/item-groups", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteItemGroup: (id: number) =>
+    request<void>(`/api/item-groups/${id}`, { method: "DELETE" }),
+
+  setItemGroup: (id: number, group_id: number | null) =>
+    request<Item>(`/api/items/${id}/group`, {
+      method: "PUT",
+      body: JSON.stringify({ group_id }),
     }),
 
   // --- 物品 ---
   listItems: () => request<Item[]>("/api/items"),
 
-  createItem: (input: { name: string; category_id: number; stock: number }) =>
+  createItem: (input: {
+    name: string;
+    category_id: number;
+    stock: number;
+    group_id?: number | null;
+    storage_location_id?: number | null;
+    amount?: number | null;
+    expires_at?: string | null;
+  }) =>
     request<Item>("/api/items", {
       method: "POST",
       body: JSON.stringify(input),
@@ -184,14 +231,16 @@ export const api = {
   decrementItem: (id: number) =>
     request<Item>(`/api/items/${id}/decrement`, { method: "PUT" }),
 
-  // amount は在庫0からの補充時のみ渡す (任意)。null/未指定なら金額なしで +1。
-  incrementItem: (id: number, amount?: number | null) =>
-    request<Item>(`/api/items/${id}/increment`, {
+  // amount / expires_at は在庫0からの補充時のみ渡す (任意)。
+  incrementItem: (id: number, amount?: number | null, expiresAt?: string | null) => {
+    const body: Record<string, unknown> = {};
+    if (amount != null) body.amount = amount;
+    if (expiresAt != null) body.expires_at = expiresAt;
+    return request<Item>(`/api/items/${id}/increment`, {
       method: "PUT",
-      ...(amount != null
-        ? { body: JSON.stringify({ amount }) }
-        : {}),
-    }),
+      ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {}),
+    });
+  },
 
   setItemName: (id: number, name: string) =>
     request<Item>(`/api/items/${id}/name`, {

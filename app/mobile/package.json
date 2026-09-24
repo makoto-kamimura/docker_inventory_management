@@ -9,16 +9,20 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@react-native-community/datetimepicker": "8.4.4",
-    "expo": "~54.0.33",
-    "expo-camera": "~17.0.10",
-    "expo-status-bar": "~3.0.9",
-    "react": "19.1.0",
-    "react-native": "0.81.5"
+    "@expo/metro-runtime": "~57.0.15",
+    "@react-native-community/datetimepicker": "9.1.0",
+    "expo": "^57.0.22",
+    "expo-camera": "~57.0.5",
+    "expo-splash-screen": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "^0.21.0"
   },
   "devDependencies": {
-    "@types/react": "~19.1.0",
-    "typescript": "~5.9.2"
+    "@types/react": "~19.2.10",
+    "typescript": "~6.0.3"
   },
   "private": true
 }

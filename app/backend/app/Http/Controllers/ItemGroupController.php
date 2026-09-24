@@ -6,6 +6,7 @@ use App\Models\Item;
 use App\Models\ItemGroup;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 
 class ItemGroupController extends Controller
 {
@@ -17,7 +18,10 @@ class ItemGroupController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name' => 'required|string|max:255|unique:item_groups,name',
+            'name' => [
+                'required', 'string', 'max:255',
+                Rule::unique('item_groups', 'name')->where('tenant_id', auth()->user()->tenant_id),
+            ],
         ]);
 
         return ItemGroup::create($data);
@@ -33,7 +37,10 @@ class ItemGroupController extends Controller
     public function updateItemGroup(Request $request, Item $item)
     {
         $data = $request->validate([
-            'group_id' => 'nullable|integer|exists:item_groups,id',
+            'group_id' => [
+                'nullable', 'integer',
+                Rule::exists('item_groups', 'id')->where('tenant_id', auth()->user()->tenant_id),
+            ],
         ]);
 
         $item->update(['group_id' => $data['group_id']]);

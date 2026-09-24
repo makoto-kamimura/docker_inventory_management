@@ -1,13 +1,16 @@
 <?php
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Item extends Model
 {
-    protected $fillable = ['name', 'category_id', 'group_id', 'storage_location_id', 'stock', 'barcode'];
+    use BelongsToTenant;
+
+    protected $fillable = ['name', 'category_id', 'group_id', 'storage_location_id', 'stock', 'barcode', 'tenant_id'];
 
     public function category(): BelongsTo
     {

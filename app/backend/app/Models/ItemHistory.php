@@ -1,12 +1,15 @@
 <?php
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ItemHistory extends Model
 {
-    protected $fillable = ['item_id', 'user_id', 'change', 'amount', 'expires_at', 'changed_at'];
+    use BelongsToTenant;
+
+    protected $fillable = ['item_id', 'user_id', 'change', 'amount', 'expires_at', 'changed_at', 'tenant_id'];
 
     public function item(): BelongsTo
     {

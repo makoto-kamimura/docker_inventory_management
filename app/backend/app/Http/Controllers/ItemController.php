@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Item;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ItemController extends Controller
 {
@@ -26,13 +27,15 @@ class ItemController extends Controller
 
     public function store(Request $request)
     {
+        $tenantId = auth()->user()->tenant_id;
+
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'category_id' => 'required|integer|exists:categories,id',
+            'category_id' => ['required', 'integer', Rule::exists('categories', 'id')->where('tenant_id', $tenantId)],
             'stock' => 'required|integer|min:0',
-            'barcode' => 'nullable|string|max:64|unique:items,barcode',
-            'group_id' => 'nullable|integer|exists:item_groups,id',
-            'storage_location_id' => 'nullable|integer|exists:storage_locations,id',
+            'barcode' => ['nullable', 'string', 'max:64', Rule::unique('items', 'barcode')->where('tenant_id', $tenantId)],
+            'group_id' => ['nullable', 'integer', Rule::exists('item_groups', 'id')->where('tenant_id', $tenantId)],
+            'storage_location_id' => ['nullable', 'integer', Rule::exists('storage_locations', 'id')->where('tenant_id', $tenantId)],
             'amount' => 'nullable|integer|min:0',
             'expires_at' => 'nullable|date',
         ]);
@@ -91,7 +94,10 @@ class ItemController extends Controller
     {
         $data = $request->validate([
             // null を渡せば解除、文字列を渡せば設定 (自分自身を除いて unique)
-            'barcode' => 'nullable|string|max:64|unique:items,barcode,' . $item->id,
+            'barcode' => [
+                'nullable', 'string', 'max:64',
+                Rule::unique('items', 'barcode')->where('tenant_id', auth()->user()->tenant_id)->ignore($item->id),
+            ],
         ]);
 
         $item->barcode = $data['barcode'] ?? null;
@@ -103,7 +109,10 @@ class ItemController extends Controller
     public function updateCategory(Item $item, Request $request)
     {
         $data = $request->validate([
-            'category_id' => 'required|integer|exists:categories,id',
+            'category_id' => [
+                'required', 'integer',
+                Rule::exists('categories', 'id')->where('tenant_id', auth()->user()->tenant_id),
+            ],
         ]);
 
         $item->category_id = $data['category_id'];
@@ -115,7 +124,10 @@ class ItemController extends Controller
     public function updateStorageLocation(Item $item, Request $request)
     {
         $data = $request->validate([
-            'storage_location_id' => 'nullable|integer|exists:storage_locations,id',
+            'storage_location_id' => [
+                'nullable', 'integer',
+                Rule::exists('storage_locations', 'id')->where('tenant_id', auth()->user()->tenant_id),
+            ],
         ]);
 
         $item->storage_location_id = $data['storage_location_id'];

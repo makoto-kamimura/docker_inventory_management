@@ -49,7 +49,7 @@ const LaunchRequestHandler = {
   },
   handle(h) {
     return h.responseBuilder
-      .speak('在庫管理を開きました。何を払い出しますか？')
+      .speak('ストクルを開きました。何を払い出しますか？')
       .reprompt('払い出す品名を教えてください。')
       .getResponse();
   },
@@ -171,7 +171,7 @@ const NoIntentHandler = {
     );
   },
   handle(h) {
-    return h.responseBuilder.speak('在庫管理を閉じます。').getResponse();
+    return h.responseBuilder.speak('ストクルを閉じます。').getResponse();
   },
 };
 
@@ -185,7 +185,7 @@ const CancelAndStopIntentHandler = {
     );
   },
   handle(h) {
-    return h.responseBuilder.speak('在庫管理を閉じます。').getResponse();
+    return h.responseBuilder.speak('ストクルを閉じます。').getResponse();
   },
 };
 

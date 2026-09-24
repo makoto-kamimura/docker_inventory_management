@@ -3,19 +3,19 @@
     "publishingInformation": {
       "locales": {
         "ja-JP": {
-          "name": "在庫管理",
+          "name": "ストクル",
           "summary": "社内在庫の払い出しを音声で操作できます",
           "description": "「○○を減らして」と話しかけるだけで在庫を1個払い出せます。",
           "examplePhrases": [
-            "アレクサ、在庫管理を開いて",
+            "アレクサ、ストクルを開いて",
             "鉛筆を一個取り出した",
             "マウスを取り出した"
           ],
-          "keywords": ["在庫", "管理", "払い出し"]
+          "keywords": ["ストクル", "在庫", "管理", "払い出し"]
         }
       },
       "isAvailableWorldwide": false,
-      "testingInstructions": "「アレクサ、在庫管理を開いて」と言ってスキルを起動し、「○○を減らして」で払い出し操作を試してください。",
+      "testingInstructions": "「アレクサ、ストクルを開いて」と言ってスキルを起動し、「○○を減らして」で払い出し操作を試してください。",
       "category": "ORGANIZERS_AND_ASSISTANTS",
       "distributionCountries": ["JP"]
     },

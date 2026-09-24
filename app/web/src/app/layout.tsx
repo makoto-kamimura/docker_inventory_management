@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "在庫管理",
-  description: "docker_inventory_management - 在庫管理 Web フロントエンド",
+  title: "ストクル — Stock＋Cycle",
+  description: "ストクル (docker_inventory_management) - 在庫管理 Web フロントエンド",
 };
 
 export default function RootLayout({

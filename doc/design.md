@@ -7,7 +7,7 @@
 社内向けの簡易在庫管理システム。カテゴリに属する物品を登録し、在庫数の参照・追加・払い出し (1個ずつ減算) と履歴記録を行う。
 
 - バックエンド: Laravel 12 (PHP 8.2) を REST API として提供
-- フロントエンド: Web (Next.js 16) とモバイル (Expo / React Native 0.81) の 2 系統
+- フロントエンド: Web (Next.js 16) とモバイル (Expo / React Native 0.86) の 2 系統
 - データストア: MySQL 8.0 (Docker コンテナで管理、phpMyAdmin 同梱)
 - 実行基盤: Backend / DB / phpMyAdmin / **Web** を Docker Compose で一括起動。モバイル (Expo) は開発時はホスト側 `npx expo start`、本番は **EAS Build** でスタンドアロンアプリ化 (Metro 不要、[operation.md §5.5](operation.md))
 - 追加機能: モバイルからの **バーコードスキャン** で在庫 +1、未登録なら物品追加フォームへ遷移
@@ -47,7 +47,7 @@ docker_inventory_management/
 │   ├── backend/   Laravel API (PHP 8.2 / Laravel 12)
 │   ├── web/       Next.js 16 (App Router, TypeScript, Tailwind v4)
 │   │   └── Dockerfile         Node 22 alpine、WEB_MODE で dev/prod を切替
-│   └── mobile/    Expo 54 + React Native 0.81 (TypeScript) — expo-camera 同梱
+│   └── mobile/    Expo 57 + React Native 0.86 (TypeScript) — expo-camera 同梱
 ├── platform/
 │   ├── docker/                Dockerfile (php:8.2-fpm ベース)
 │   ├── mysql/                 MySQL データボリューム (gitignore)
@@ -228,7 +228,7 @@ Laravel 側 `.env` は `DB_CONNECTION=mysql / DB_HOST=db / DB_PORT=3306 / DB_DAT
 | 項目 | 値 |
 | --- | --- |
 | スキル種別 | カスタムスキル |
-| 呼び出し名 | `在庫管理` |
+| 呼び出し名 | `ストクル` |
 | 対応言語 | 日本語 (ja-JP) |
 | バックエンド | **方式 A**: AWS Lambda (Node.js 22.x) / **方式 B**: Express 自サーバー (`platform/alexa-server/`) |
 | 主要ライブラリ | `ask-sdk-core`, `axios` (共通) / **方式 B** は `ask-sdk-express-adapter`, `express` を追加 |
@@ -238,15 +238,15 @@ Laravel 側 `.env` は `DB_CONNECTION=mysql / DB_HOST=db / DB_PORT=3306 / DB_DAT
 ### 7a.2 対話フロー
 
 ```
-ユーザー : 「アレクサ、在庫管理を開いて」
-Alexa   : 「在庫管理を開きました。何を払い出しますか？」
+ユーザー : 「アレクサ、ストクルを開いて」
+Alexa   : 「ストクルを開きました。何を払い出しますか？」
              ↓ (セッション継続・reprompt あり)
 ユーザー : 「マウス」
 Alexa   : 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
              ↓ (セッション継続・reprompt あり)
 ユーザー : (A) 「ボールペン」 → 再度払い出し処理
-           (B) 「大丈夫」「払い出さない」「いいえ」等 → 「在庫管理を閉じます。」でセッション終了
-           (C) 「キャンセル」「ストップ」 → 「在庫管理を閉じます。」でセッション終了
+           (B) 「大丈夫」「払い出さない」「いいえ」等 → 「ストクルを閉じます。」でセッション終了
+           (C) 「キャンセル」「ストップ」 → 「ストクルを閉じます。」でセッション終了
 ```
 
 在庫が0の場合:
@@ -281,9 +281,9 @@ Alexa : 「ダカラは見つかりませんでした。」
 | `LaunchRequestHandler` | 起動メッセージを返し、セッションを継続 |
 | `DecrementStockIntentHandler` | `GET /api/items` で品名検索 → `PUT /api/items/{id}/decrement` で減算 → 残数を告知し継続 |
 | `HelpIntentHandler` | 操作案内を返し品名を再 elicit |
-| `NoIntentHandler` | 「在庫管理を閉じます。」でセッション終了 |
+| `NoIntentHandler` | 「ストクルを閉じます。」でセッション終了 |
 | `FallbackIntentHandler` | 「すみません、お役に立てません。」でセッション終了 |
-| `CancelAndStopIntentHandler` | 「在庫管理を閉じます。」でセッション終了 |
+| `CancelAndStopIntentHandler` | 「ストクルを閉じます。」でセッション終了 |
 | `SessionEndedRequestHandler` | セッション終了通知の受け取り (応答なし) |
 | `ErrorHandler` | 予期しないエラーのフォールバック応答 |
 
@@ -335,7 +335,7 @@ platform/alexa-server/              方式 B: 自サーバー (Express)
 | Backend (dev)  | PHP 8.2 / Laravel 12 / Eloquent / `php artisan serve` | 開発用シングルプロセス。ソース bind mount で即反映 |
 | Backend (prod) | PHP 8.2 FPM (`php:8.2-fpm-alpine`) + Composer `--no-dev` | `migrate --force` + `config:cache` を entrypoint で実行 |
 | Frontend       | Next.js 16.2 (App Router) / React 19.2 / Tailwind v4 | **訓練データと挙動が異なる**。`node_modules/next/dist/docs/` 参照必須。Docker (node:22-alpine) で起動 |
-| Mobile         | Expo 54 / React Native 0.81 / TypeScript / expo-camera 17 | https://docs.expo.dev/versions/v54.0.0/ を参照 |
+| Mobile         | Expo 57 / React Native 0.86 / TypeScript 6 / expo-camera 57 | https://docs.expo.dev/versions/v57.0.0/ を参照。SDK 55 以降 Expo 製パッケージの版番号は SDK に揃う |
 | DB             | MySQL 8.0 (`mysql_native_password`)                 |                                                     |
 | Reverse proxy (prod) | Caddy 2 (alpine)                              | Let's Encrypt 自動 TLS、`/api/*` `/up` を FastCGI で `app`、それ以外を `web` に reverse_proxy |
 | Container      | Docker Compose v2 (`docker compose`)                | `version:` キーは指定しない (v2 で obsolete)       |
@@ -416,7 +416,7 @@ dev (`docker-compose.yml`) と並列で **`platform/docker-compose.prod.yml`** �
 詳細は [task.md](task.md) を参照。今回の再調整で T-01〜T-15 は対応済 (Web/モバイル UI を含む)。Web の Docker 化・在庫増 (`+1`) API・バーコードスキャン・日次分析タブはその後に追加。残課題は以下:
 
 - T-16〜T-18: テスト導入 / CI 整備 / エラーレスポンス統一
-- T-19: Expo 54 / RN 0.81 / React 19 の JSX 型互換性問題 (`@ts-nocheck` で暫定回避中)
+- T-19: Expo 54 / RN 0.81 で出ていた JSX 型互換性問題は Expo 57 (RN 0.86) で解消。`@ts-nocheck` は削除済で `npx tsc --noEmit` が通る
 - T-06: トークン (Bearer) 認証を全 API に導入済 (Sanctum 不使用の軽量実装)。残: 認可ロール / 画面からのユーザー管理 / トークンの有効期限・ローテーション
 - バーコード機能の Web 対応: 現状はモバイルのみ。Web ブラウザでも WebUSB / `BarcodeDetector` 等で読み取らせるかは未着手
 - 日次分析の Mobile 対応: 現状は Web のみ

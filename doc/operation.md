@@ -7,7 +7,7 @@
 | ツール          | 推奨バージョン            | 用途                          |
 | --------------- | ------------------------- | ----------------------------- |
 | Docker Desktop  | 4.x 以降 (`docker compose` v2 が使えること) | API / MySQL / phpMyAdmin 起動 |
-| Node.js         | 20 以降 (LTS)             | Web (Next.js 16) / Mobile (Expo 54) |
+| Node.js         | 20.19.4 以降 (Expo 57 の要件)  | Web (Next.js 16) / Mobile (Expo 57) |
 | npm             | 10 以降                   | パッケージ管理                |
 | (任意) Expo CLI | `npx expo` で都度実行可   | モバイル開発                  |
 | (任意) PHP 8.2  | コンテナ外から artisan を直接叩く場合のみ |              |
@@ -383,11 +383,11 @@ OS 設定からのみ変更可能 (アプリ内では再度ダイアログを出
 | Android エミュレータ   | `http://10.0.2.2:8000`             | エミュ→ホストの特殊 IP                 |
 | 実機 (LAN 経由)        | `http://<PC の LAN IP>:8000`       | 例 `http://192.168.1.10:8000`。CORS にも追加要 (5.2 参照) |
 
-### 5.4 既知の TS 型エラーについて
+### 5.4 型チェック
 
-Expo 54 / RN 0.81 / React 19 / TS 5.9 の組合せで、RN クラスコンポーネント (`View` / `Text` 等) が `TS2786 / TS2607` を出す上流型互換性問題があり、Expo 54 の初期テンプレートでも同じく発生します。暫定回避として `App.tsx` 先頭に `@ts-nocheck` を付与済み (詳細は [task.md](task.md) T-19 参照)。実行時には影響しません。
+`npx tsc --noEmit` がエラーなしで通ります。Expo 54 / RN 0.81 のときに出ていた RN クラスコンポーネント (`View` / `Text` 等) の `TS2786 / TS2607` は Expo 57 (RN 0.86) で解消したため、`App.tsx` の `@ts-nocheck` は削除済みです。
 
-> Expo 54 の最新仕様は https://docs.expo.dev/versions/v54.0.0/ を確認 (`app/mobile/AGENTS.md`)。
+> Expo 57 の最新仕様は https://docs.expo.dev/versions/v57.0.0/ を確認 (`app/mobile/AGENTS.md`)。
 
 ### 5.5 本番ビルド (EAS Build) — `npx expo start` 無しで使う
 
@@ -798,13 +798,13 @@ server {
 
 ### 10.1 利用方法
 
-スキルの呼び出し名は **「在庫管理」**。
+スキルの呼び出し名は **「ストクル」**。
 
 #### 起動から払い出しまでの流れ
 
 ```
-「アレクサ、在庫管理を開いて」
-  → 「在庫管理を開きました。何を払い出しますか？」
+「アレクサ、ストクルを開いて」
+  → 「ストクルを開きました。何を払い出しますか？」
 
 「マウス」
   → 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
@@ -813,7 +813,7 @@ server {
   → 「ボールペンを1個払い出しました。残り2個です。他に払い出すものはありますか？」
 
 「大丈夫」             ← 終了する場合 (「払い出さない」「いいえ」「結構です」でも可)
-  → 「在庫管理を閉じます。」
+  → 「ストクルを閉じます。」
 ```
 
 #### 在庫が 0 の場合
@@ -832,7 +832,7 @@ server {
 
 #### 終了コマンド
 
-「キャンセル」「ストップ」でも「在庫管理を閉じます。」と応答してセッション終了する。
+「キャンセル」「ストップ」でも「ストクルを閉じます。」と応答してセッション終了する。
 
 ---
 
@@ -909,13 +909,13 @@ amzn1.ask.skill.872aecc6-f1b7-46c1-8374-41a4f8fe0f68
 
 #### Step 7 — インタラクションモデルをデプロイ
 
-1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「在庫管理」→「ビルド」タブ
+1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「ストクル」→「ビルド」タブ
 2. 左メニュー「インタラクションモデル」→「**JSON エディター**」
 3. `app/alexa/interaction-model/ja-JP.json` の内容を貼り付けて「**モデルを保存**」→「**モデルをビルド**」
 
 #### Step 8 — 動作確認
 
-「テスト」タブで `在庫管理を開いて` → 「在庫管理を開きました。何を払い出しますか？」が返れば成功。
+「テスト」タブで `ストクルを開いて` → 「ストクルを開きました。何を払い出しますか？」が返れば成功。
 
 #### トラブルシュート (方式 A)
 
@@ -987,13 +987,13 @@ curl -sI -X POST https://inventory.example.com/alexa
 
 #### Step 5 — インタラクションモデルをデプロイ
 
-1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「在庫管理」→「ビルド」タブ
+1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「ストクル」→「ビルド」タブ
 2. 左メニュー「インタラクションモデル」→「**JSON エディター**」
 3. `app/alexa/interaction-model/ja-JP.json` の内容を貼り付けて「**モデルを保存**」→「**モデルをビルド**」
 
 #### Step 6 — 動作確認
 
-Alexa シミュレーター (または実機) で `在庫管理を開いて` → 「在庫管理を開きました。何を払い出しますか？」が返れば成功。
+Alexa シミュレーター (または実機) で `ストクルを開いて` → 「ストクルを開きました。何を払い出しますか？」が返れば成功。
 
 #### コードを更新した場合
 

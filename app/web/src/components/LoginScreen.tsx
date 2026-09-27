@@ -5,12 +5,6 @@ import { api, type User } from "@/lib/api";
 import { errorMessage } from "@/lib/inventory";
 import { cls } from "./ui";
 
-const DEMO_ACCOUNTS = [
-  { label: "管理者", account: "admin@example.com" },
-  { label: "一般ユーザー", account: "user@example.com" },
-];
-const DEMO_PASSWORD = "password";
-
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -71,26 +65,6 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
         >
           {submitting ? "ログイン中..." : "ログイン"}
         </button>
-
-        <div className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-          <p className="text-center text-xs text-zinc-400">
-            デモアカウント（共通パスワード: {DEMO_PASSWORD}）
-          </p>
-          {DEMO_ACCOUNTS.map(({ label, account }) => (
-            <button
-              key={account}
-              type="button"
-              onClick={() => {
-                setEmail(account);
-                setPassword(DEMO_PASSWORD);
-              }}
-              className="flex w-full items-center justify-between rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-            >
-              <span className="font-medium text-zinc-600 dark:text-zinc-300">{label}</span>
-              <span className="text-zinc-500 dark:text-zinc-400">{account}</span>
-            </button>
-          ))}
-        </div>
       </form>
     </main>
   );

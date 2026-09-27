@@ -189,19 +189,6 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  demoBox: { marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, gap: 6 },
-  demoTitle: { fontSize: 11, color: colors.muted, textAlign: "center", marginBottom: 4 },
-  demoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: colors.background,
-    borderRadius: 8,
-  },
-  demoLabel: { fontSize: 12, fontWeight: "600", color: colors.textSub },
-  demoAccount: { fontSize: 12, color: colors.link },
 
   // --- 在庫一覧 ---
   sectionList: { gap: 12 },

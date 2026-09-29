@@ -7,7 +7,7 @@
 | ツール          | 推奨バージョン            | 用途                          |
 | --------------- | ------------------------- | ----------------------------- |
 | Docker Desktop  | 4.x 以降 (`docker compose` v2 が使えること) | API / MySQL / phpMyAdmin 起動 |
-| Node.js         | 20 以降 (LTS)             | Web (Next.js 16) / Mobile (Expo 54) |
+| Node.js         | 20.19.4 以降 (Expo 57 の要件)  | Web (Next.js 16) / Mobile (Expo 57) |
 | npm             | 10 以降                   | パッケージ管理                |
 | (任意) Expo CLI | `npx expo` で都度実行可   | モバイル開発                  |
 | (任意) PHP 8.2  | コンテナ外から artisan を直接叩く場合のみ |              |
@@ -208,7 +208,7 @@ $u->save();
 
 Web (`app/web`) は docker-compose の `web` サービスとして自動起動する。`docker compose up -d` 後に http://localhost:3000 にアクセスすれば使える。
 
-機能: ログイン / カテゴリ追加 / 物品追加 / 保管場所追加 / 在庫一覧 (在庫切れ絞り込み) / 払い出し (-1) / 在庫増 (+1, **在庫0からの補充時は金額入力モーダル**) / カテゴリ移動 / 履歴閲覧 (モーダル, 金額・更新者表示) / 分析 / ログアウト。Client Component (`'use client'`) で実装、API は [src/lib/api.ts](../app/web/src/lib/api.ts) 経由 (トークンは `localStorage` 保持)。
+機能: ログイン / カテゴリ追加 / 物品追加 / 保管場所追加 / 在庫一覧 (在庫切れ絞り込み) / 払い出し (-1) / 在庫増 (+1, **在庫0からの補充時は金額入力モーダル**) / カテゴリ移動 / 履歴閲覧 (モーダル, 金額・更新者表示) / 分析 / ログアウト。Client Component (`'use client'`) で実装、API は [src/lib/api.ts](../../app/web/src/lib/api.ts) 経由 (トークンは `localStorage` 保持)。
 
 ### 4.1 起動モード (`WEB_MODE`)
 
@@ -346,7 +346,7 @@ xcrun simctl openurl booted "exp://127.0.0.1:8081"
    > "Expo Go" はカメラへのアクセスを求めています
    > バーコード読み取りのためにカメラへのアクセスを許可してください
 
-   この文言は [app/mobile/app.json](../app/mobile/app.json) の `plugins.expo-camera.cameraPermission` で定義 (Info.plist の `NSCameraUsageDescription` に注入される)。
+   この文言は [app/mobile/app.json](../../app/mobile/app.json) の `plugins.expo-camera.cameraPermission` で定義 (Info.plist の `NSCameraUsageDescription` に注入される)。
 
 4. **「OK」** をタップ → そのまま `CameraView` のプレビューに切り替わる。以降、`⌖` を押すと即カメラが開く。
 
@@ -383,17 +383,17 @@ OS 設定からのみ変更可能 (アプリ内では再度ダイアログを出
 | Android エミュレータ   | `http://10.0.2.2:8000`             | エミュ→ホストの特殊 IP                 |
 | 実機 (LAN 経由)        | `http://<PC の LAN IP>:8000`       | 例 `http://192.168.1.10:8000`。CORS にも追加要 (5.2 参照) |
 
-### 5.4 既知の TS 型エラーについて
+### 5.4 型チェック
 
-Expo 54 / RN 0.81 / React 19 / TS 5.9 の組合せで、RN クラスコンポーネント (`View` / `Text` 等) が `TS2786 / TS2607` を出す上流型互換性問題があり、Expo 54 の初期テンプレートでも同じく発生します。暫定回避として `App.tsx` 先頭に `@ts-nocheck` を付与済み (詳細は [task.md](task.md) T-19 参照)。実行時には影響しません。
+`npx tsc --noEmit` がエラーなしで通ります。Expo 54 / RN 0.81 のときに出ていた RN クラスコンポーネント (`View` / `Text` 等) の `TS2786 / TS2607` は Expo 57 (RN 0.86) で解消したため、`App.tsx` の `@ts-nocheck` は削除済みです。
 
-> Expo 54 の最新仕様は https://docs.expo.dev/versions/v54.0.0/ を確認 (`app/mobile/AGENTS.md`)。
+> Expo 57 の最新仕様は https://docs.expo.dev/versions/v57.0.0/ を確認 (`app/mobile/AGENTS.md`)。
 
 ### 5.5 本番ビルド (EAS Build) — `npx expo start` 無しで使う
 
 `npx expo start` (Metro) が必要なのは**開発フロー (Expo Go)** のため。JS をアプリ本体に焼き込んだ**スタンドアロンアプリ**を作れば、Metro 無しで起動できる。ビルドは Expo のクラウド (EAS Build) で実行する。
 
-> 設定ファイルは追加済み: [app/mobile/eas.json](../app/mobile/eas.json)(ビルドプロファイル)/ [app/mobile/app.json](../app/mobile/app.json)(`ios.bundleIdentifier` / `android.package`)。
+> 設定ファイルは追加済み: [app/mobile/eas.json](../../app/mobile/eas.json)(ビルドプロファイル)/ [app/mobile/app.json](../../app/mobile/app.json)(`ios.bundleIdentifier` / `android.package`)。
 
 #### 前提
 
@@ -401,8 +401,8 @@ Expo 54 / RN 0.81 / React 19 / TS 5.9 の組合せで、RN クラスコンポー
 | --- | --- |
 | Expo アカウント | https://expo.dev で無料作成 |
 | eas-cli | `npm i -g eas-cli`(または各コマンドを `npx eas-cli ...` で実行) |
-| **bundle id / package** | [app.json](../app/mobile/app.json) は仮で `com.example.inventory`。**自社のリバースドメインに必ず変更**(例 `jp.co.yourcompany.inventory`)。ストア提出後は変更不可 |
-| **API の URL** | EAS Build はクラウド実行なので `localhost` は不可。[eas.json](../app/mobile/eas.json) の各プロファイル `env.EXPO_PUBLIC_API_BASE_URL` を**到達可能な URL に編集**(プレビューは PC の LAN IP、本番は公開ドメイン)。`EXPO_PUBLIC_*` はビルド時に焼き込まれる |
+| **bundle id / package** | [app.json](../../app/mobile/app.json) は仮で `com.example.inventory`。**自社のリバースドメインに必ず変更**(例 `jp.co.yourcompany.inventory`)。ストア提出後は変更不可 |
+| **API の URL** | EAS Build はクラウド実行なので `localhost` は不可。[eas.json](../../app/mobile/eas.json) の各プロファイル `env.EXPO_PUBLIC_API_BASE_URL` を**到達可能な URL に編集**(プレビューは PC の LAN IP、本番は公開ドメイン)。`EXPO_PUBLIC_*` はビルド時に焼き込まれる |
 
 #### 初回セットアップ
 
@@ -412,7 +412,7 @@ eas login                 # Expo アカウントでログイン
 eas init                  # Expo プロジェクトを作成し app.json に extra.eas.projectId を書き込む
 ```
 
-#### ビルドプロファイル ([eas.json](../app/mobile/eas.json))
+#### ビルドプロファイル ([eas.json](../../app/mobile/eas.json))
 
 | プロファイル | 用途 | 配布 | 備考 |
 | --- | --- | --- | --- |
@@ -437,7 +437,7 @@ eas build -p ios     --profile production
 - ビルドはクラウドで実行され、完了すると成果物 (`.apk` / `.aab` / `.ipa`) のダウンロード URL が出る。
 - **Android `.apk`**: 端末にそのまま入れて起動可能(`npx expo start` 不要)。
 - **iOS**: 実機配布は Apple Developer Program (有償) + 端末の ad-hoc 登録、または TestFlight / App Store 経由。
-- いずれも **API が常時稼働&その URL に到達できること**が前提([design.md §10](design.md) の本番公開構成 + `EXPO_PUBLIC_API_BASE_URL` をその URL に)。
+- いずれも **API が常時稼働&その URL に到達できること**が前提([README 第15章](../../README.md#15-本番デプロイ構成) の本番公開構成 + `EXPO_PUBLIC_API_BASE_URL` をその URL に)。
 
 #### ストア提出 (任意)
 
@@ -446,7 +446,7 @@ eas submit -p android --profile production   # Google Play
 eas submit -p ios     --profile production   # App Store Connect
 ```
 
-> モバイルのトークンは現状メモリ保持 (アプリ再起動で再ログイン)。本番配布する場合は `expo-secure-store` で永続化を検討 ([task.md](task.md) T-06 参照)。
+> モバイルのトークンは現状メモリ保持 (アプリ再起動で再ログイン)。本番配布する場合は `expo-secure-store` で永続化を検討 ([README 第17章 未決事項](../../README.md#17-未決事項) 参照)。
 
 ## 6. 開発時のよく使うコマンド
 
@@ -798,13 +798,13 @@ server {
 
 ### 10.1 利用方法
 
-スキルの呼び出し名は **「在庫管理」**。
+スキルの呼び出し名は **「ストクル」**。
 
 #### 起動から払い出しまでの流れ
 
 ```
-「アレクサ、在庫管理を開いて」
-  → 「在庫管理を開きました。何を払い出しますか？」
+「アレクサ、ストクルを開いて」
+  → 「ストクルを開きました。何を払い出しますか？」
 
 「マウス」
   → 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
@@ -813,7 +813,7 @@ server {
   → 「ボールペンを1個払い出しました。残り2個です。他に払い出すものはありますか？」
 
 「大丈夫」             ← 終了する場合 (「払い出さない」「いいえ」「結構です」でも可)
-  → 「在庫管理を閉じます。」
+  → 「ストクルを閉じます。」
 ```
 
 #### 在庫が 0 の場合
@@ -832,7 +832,7 @@ server {
 
 #### 終了コマンド
 
-「キャンセル」「ストップ」でも「在庫管理を閉じます。」と応答してセッション終了する。
+「キャンセル」「ストップ」でも「ストクルを閉じます。」と応答してセッション終了する。
 
 ---
 
@@ -852,7 +852,7 @@ server {
 
 ### 10.3 方式 A — Lambda デプロイ
 
-> **前提**: AWS アカウントに Lambda 関数 `inventory-alexa-skill` が作成済みであること。Alexa Developer Console でスキルが作成済みであること。秘匿情報は `doc/alexa-secrets.local.md` (git 管理外) を参照。
+> **前提**: AWS アカウントに Lambda 関数 `inventory-alexa-skill` が作成済みであること。Alexa Developer Console でスキルが作成済みであること。秘匿情報は `docs/alexa-secrets.local.md` (git 管理外) を参照。
 
 #### Step 1 — skill.zip をビルド
 
@@ -886,7 +886,7 @@ with zipfile.ZipFile('../app/alexa/skill.zip') as z:
 | キー | 値 |
 | --- | --- |
 | `API_BASE_URL` | `https://inventory.example.com` |
-| `API_TOKEN` | (`doc/alexa-secrets.local.md` の値を参照) |
+| `API_TOKEN` | (`docs/alexa-secrets.local.md` の値を参照) |
 
 #### Step 4 — ランタイムとタイムアウトを確認
 
@@ -909,13 +909,13 @@ amzn1.ask.skill.872aecc6-f1b7-46c1-8374-41a4f8fe0f68
 
 #### Step 7 — インタラクションモデルをデプロイ
 
-1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「在庫管理」→「ビルド」タブ
+1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「ストクル」→「ビルド」タブ
 2. 左メニュー「インタラクションモデル」→「**JSON エディター**」
 3. `app/alexa/interaction-model/ja-JP.json` の内容を貼り付けて「**モデルを保存**」→「**モデルをビルド**」
 
 #### Step 8 — 動作確認
 
-「テスト」タブで `在庫管理を開いて` → 「在庫管理を開きました。何を払い出しますか？」が返れば成功。
+「テスト」タブで `ストクルを開いて` → 「ストクルを開きました。何を払い出しますか？」が返れば成功。
 
 #### トラブルシュート (方式 A)
 
@@ -939,7 +939,7 @@ amzn1.ask.skill.872aecc6-f1b7-46c1-8374-41a4f8fe0f68
 ```bash
 # platform/.env
 API_BASE_URL=http://demo-inventory-api:8000
-API_TOKEN=<doc/alexa-secrets.local.md の値>
+API_TOKEN=<docs/alexa-secrets.local.md の値>
 ```
 
 #### Step 2 — alexa_server コンテナを起動
@@ -987,13 +987,13 @@ curl -sI -X POST https://inventory.example.com/alexa
 
 #### Step 5 — インタラクションモデルをデプロイ
 
-1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「在庫管理」→「ビルド」タブ
+1. [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) → スキル「ストクル」→「ビルド」タブ
 2. 左メニュー「インタラクションモデル」→「**JSON エディター**」
 3. `app/alexa/interaction-model/ja-JP.json` の内容を貼り付けて「**モデルを保存**」→「**モデルをビルド**」
 
 #### Step 6 — 動作確認
 
-Alexa シミュレーター (または実機) で `在庫管理を開いて` → 「在庫管理を開きました。何を払い出しますか？」が返れば成功。
+Alexa シミュレーター (または実機) で `ストクルを開いて` → 「ストクルを開きました。何を払い出しますか？」が返れば成功。
 
 #### コードを更新した場合
 
@@ -1038,5 +1038,5 @@ docker compose logs alexa-server   # 起動確認
 | `app/alexa/interaction-model/ja-JP.json` | Alexa インタラクションモデル (インテント・スロット定義) |
 | `app/alexa/lambda/index.js`            | Alexa Lambda ハンドラー本体            |
 | `app/alexa/skill.zip`                  | Lambda デプロイ用 zip (ビルド後に生成、gitignore) |
-| `doc/alexa-secrets.local.md`           | Alexa スキル ID / Lambda ARN / API トークン等の秘匿情報 (gitignore) |
+| `docs/alexa-secrets.local.md`          | Alexa スキル ID / Lambda ARN / API トークン等の秘匿情報 (gitignore) |
 | `platform/mysql/`                      | MySQL データ (gitignore)               |

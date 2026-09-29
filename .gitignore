@@ -117,17 +117,17 @@ app/mobile/ios/
 app/mobile/android/
 
 # ============================================================
-# doc/archive — アーカイブ配下の依存物
+# docs/archive — アーカイブ配下の依存物
 # ============================================================
-doc/archive/**/node_modules/
-doc/archive/**/.expo/
-doc/archive/**/dist/
-doc/archive/**/build/
-doc/archive/**/.next/
+docs/archive/**/node_modules/
+docs/archive/**/.expo/
+docs/archive/**/dist/
+docs/archive/**/build/
+docs/archive/**/.next/
 
 # reactnative_app/ は参考保管ディレクトリ全体を git 管理対象外とする
 # (396MB 規模の旧 Expo プロジェクト。必要なときだけローカルに残す)
-doc/archive/reactnative_app/
+docs/archive/reactnative_app/
 
 # ============================================================
 # app/alexa (Alexa Lambda)
@@ -144,8 +144,8 @@ coverage/
 # ビルド成果物の汎用パターン(誤って増えても拾う)
 **/.DS_Store
 
-doc/task.md
-doc/*.local.md
+docs/tasks/task.md
+docs/*.local.md
 
 # ============================================================
 # 一時ファイル / デモ用ファイル(本番反映対象外)
@@ -153,8 +153,8 @@ doc/*.local.md
 *.bak
 *.bak.*
 *.bk
-doc/qr.md
-doc/qr.png
+docs/qr.md
+docs/qr.png
 
 # platform/alexa-server の依存物(他サービスの node_modules と同様に除外)
 platform/alexa-server/node_modules/

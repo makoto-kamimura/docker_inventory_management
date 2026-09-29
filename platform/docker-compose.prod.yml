@@ -110,7 +110,7 @@ services:
     container_name: caddy_proxy_prod
     # 外部 Nginx / LB の後ろに置く場合: SITE_HOSTNAME=:80 にして、
     # 下記 443 系を削除 (or "127.0.0.1:80:80" でループバック限定) する。
-    # 詳細は doc/operation.md §8.9 参照。
+    # 詳細は docs/runbooks/operation.md §8.9 参照。
     ports:
       - "80:80"
       - "443:443"

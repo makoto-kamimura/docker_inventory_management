@@ -9,7 +9,7 @@
 .DS_Store
 
 # Docs / archive (本番イメージには不要)
-doc/
+docs/
 README.md
 LICENSE
 

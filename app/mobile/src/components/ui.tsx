@@ -12,7 +12,13 @@ import {
   Text,
   View,
 } from "react-native";
-import { parseLocalDate, toLocalDateString, type Option } from "../inventory";
+import {
+  SCREEN_INTRO,
+  parseLocalDate,
+  toLocalDateString,
+  type Option,
+  type Screen,
+} from "../inventory";
 import { styles } from "../styles";
 
 /** 非同期処理中フラグ付きで処理を実行する (保存ボタンの二重押し防止) */
@@ -93,12 +99,128 @@ export function Overlay({
   );
 }
 
+export type Tone = "info" | "success" | "warning" | "danger" | "neutral";
+
+// 色だけに頼らず、アイコンと文言を必ず添える (しおりカレンダーと同じ方針)
+const CALLOUT_STYLE = {
+  info: [styles.calloutInfo, styles.calloutInfoText, "ℹ️"],
+  success: [styles.calloutSuccess, styles.calloutSuccessText, "✅"],
+  warning: [styles.calloutWarning, styles.calloutWarningText, "⚠️"],
+  danger: [styles.calloutDanger, styles.calloutDangerText, "⛔"],
+  neutral: [styles.calloutInfo, styles.calloutInfoText, "ℹ️"],
+} as const;
+
+const BADGE_STYLE = {
+  info: [styles.badgeInfo, styles.badgeInfoText],
+  success: [styles.badgeSuccess, styles.badgeSuccessText],
+  warning: [styles.badgeWarning, styles.badgeWarningText],
+  danger: [styles.badgeDanger, styles.badgeDangerText],
+  neutral: [styles.badgeNeutral, styles.badgeNeutralText],
+} as const;
+
+/** アプリのロゴマーク */
+export function LogoMark({ large = false }: { large?: boolean }) {
+  return (
+    <View style={[styles.logo, large && styles.logoLarge]}>
+      <Text style={[styles.logoText, large && styles.logoTextLarge]}>📦</Text>
+    </View>
+  );
+}
+
+/** タブと画面見出しのアイコン */
+export const SCREEN_ICON: Record<Screen, string> = {
+  scan: "📷",
+  list: "📦",
+  item: "➕",
+  category: "🏷️",
+  group: "🗂️",
+  storage: "📍",
+  analytics: "📊",
+};
+
+/** 画面の見出しと説明文 */
+export function ScreenIntro({ screen }: { screen: Screen }) {
+  const icon = SCREEN_ICON[screen];
+  const { title, description } = SCREEN_INTRO[screen];
+  return (
+    <View style={styles.intro}>
+      <View style={styles.introIcon}>
+        <Text style={styles.introIconText}>{icon}</Text>
+      </View>
+      <View style={styles.introBody}>
+        <Text style={styles.introTitle}>{title}</Text>
+        <Text style={styles.introText}>{description}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** 補足説明の囲み */
+export function Callout({ tone = "info", children }: { tone?: Tone; children: ReactNode }) {
+  const [box, text, icon] = CALLOUT_STYLE[tone];
+  return (
+    <View style={[styles.callout, box]}>
+      <Text style={styles.calloutIcon}>{icon}</Text>
+      <Text style={[styles.calloutText, text]}>{children}</Text>
+    </View>
+  );
+}
+
+/** データがないときの案内 */
+export function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: string;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Text style={styles.emptyIconText}>{icon}</Text>
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      {description && <Text style={styles.emptyText}>{description}</Text>}
+    </View>
+  );
+}
+
+/** 入力欄の下の補足 */
+export function Hint({ children }: { children: ReactNode }) {
+  return <Text style={styles.hint}>{children}</Text>;
+}
+
+export function Badge({ tone = "neutral", label }: { tone?: Tone; label: string }) {
+  const [box, text] = BADGE_STYLE[tone];
+  return (
+    <View style={[styles.badge, box]}>
+      <Text style={[styles.badgeText, text]}>{label}</Text>
+    </View>
+  );
+}
+
+/** 入力欄のラベル (必須 / 任意の表示つき) */
+export function FieldLabel({ label, required = false }: { label: string; required?: boolean }) {
+  return (
+    <Text style={styles.label}>
+      {label}{" "}
+      <Text style={required ? styles.labelRequired : styles.labelOptional}>
+        {required ? "必須" : "任意"}
+      </Text>
+    </Text>
+  );
+}
+
 export function TabButton({
   label,
+  icon,
   active,
   onPress,
 }: {
   label: string;
+  icon: string;
   active: boolean;
   onPress: () => void;
 }) {
@@ -113,6 +235,7 @@ export function TabButton({
         pressed && styles.tabButtonPressed,
       ]}
     >
+      <Text style={[styles.tabButtonIcon, active && styles.tabButtonIconActive]}>{icon}</Text>
       <Text style={[styles.tabButtonText, active && styles.tabButtonTextActive]}>{label}</Text>
     </Pressable>
   );
@@ -167,11 +290,14 @@ export function IconButton({
   icon,
   onPress,
   disabled = false,
+  tone,
 }: {
   label: string;
   icon: string;
   onPress: () => void;
   disabled?: boolean;
+  /** increment = 入庫 (緑) / decrement = 払い出し (琥珀) */
+  tone?: "increment" | "decrement";
 }) {
   return (
     <Pressable
@@ -180,10 +306,20 @@ export function IconButton({
       accessibilityLabel={label}
       style={({ pressed }) => [
         styles.iconButton,
+        tone === "increment" && styles.iconButtonIncrement,
+        tone === "decrement" && styles.iconButtonDecrement,
         (disabled || pressed) && styles.smallButtonPressed,
       ]}
     >
-      <Text style={styles.iconButtonText}>{icon}</Text>
+      <Text
+        style={[
+          styles.iconButtonText,
+          tone === "increment" && styles.iconButtonIncrementText,
+          tone === "decrement" && styles.iconButtonDecrementText,
+        ]}
+      >
+        {icon}
+      </Text>
     </Pressable>
   );
 }
@@ -307,15 +443,19 @@ export function DateField({
 /** 見出し付きの一覧カード (読み込み中 / 空表示 / 区切り線を含む) */
 export function ListCard<T>({
   title,
+  icon,
   loading,
   emptyText,
+  emptyDescription,
   data,
   keyOf,
   renderRow,
 }: {
   title: string;
+  icon: string;
   loading: boolean;
   emptyText: string;
+  emptyDescription?: string;
   data: T[];
   keyOf: (row: T) => string | number;
   renderRow: (row: T) => ReactNode;
@@ -326,7 +466,7 @@ export function ListCard<T>({
       {loading ? (
         <ActivityIndicator />
       ) : data.length === 0 ? (
-        <Text style={styles.muted}>{emptyText}</Text>
+        <EmptyState icon={icon} title={emptyText} description={emptyDescription} />
       ) : (
         <View>
           {data.map((row, idx) => (

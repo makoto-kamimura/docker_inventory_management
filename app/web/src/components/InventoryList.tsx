@@ -1,20 +1,43 @@
 "use client";
 
 import { useMemo } from "react";
+import {
+  Barcode,
+  ChevronRight,
+  History,
+  Layers,
+  MapPin,
+  Minus,
+  PackageOpen,
+  Pencil,
+  Plus,
+  Tags,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import type { Category, Item, StorageLocation } from "@/lib/api";
 import {
   EMPTY_LIST_MESSAGE,
   GROUP_BY_OPTIONS,
   LIST_FILTER_OPTIONS,
+  STOCK_STATUS_LABEL,
   averageAmount,
   buildSections,
   formatYen,
   isExpired,
+  stockStatus,
   type GroupBy,
   type ItemSection as Section,
   type ListFilter,
+  type StockStatus,
 } from "@/lib/inventory";
-import { ReloadButton, SegControl, cls } from "./ui";
+import { Badge, EmptyState, ReloadButton, SegControl, cls, type Tone } from "./ui";
+
+const STATUS_TONE: Record<Exclude<StockStatus, "ok">, Tone> = {
+  out: "danger",
+  expired: "danger",
+  soon: "warning",
+};
 
 /** 品目行から開くダイアログの種類 */
 export type ItemAction =
@@ -61,19 +84,32 @@ export function InventoryList({
 
   return (
     <section className={cls.card}>
-      <header className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="font-semibold">在庫一覧</h2>
+      <header className="space-y-2 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
         <div className="flex flex-wrap items-center gap-2">
           <SegControl value={filter} onChange={onChangeFilter} options={LIST_FILTER_OPTIONS} />
           <SegControl value={groupBy} onChange={onChangeGroupBy} options={GROUP_BY_OPTIONS} />
-          <ReloadButton onClick={onReload} />
+          <span className="ml-auto">
+            <ReloadButton onClick={onReload} />
+          </span>
         </div>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+          <span className="inline-flex items-center gap-1">
+            <Plus aria-hidden className="h-3.5 w-3.5 text-emerald-600" />
+            入庫
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Minus aria-hidden className="h-3.5 w-3.5 text-amber-600" />
+            払い出し
+          </span>
+          <Badge tone="danger">在庫切れ・期限切れ</Badge>
+          <Badge tone="warning">期限 1ヶ月以内</Badge>
+        </p>
       </header>
 
       {loading ? (
         <p className={cls.muted}>読み込み中...</p>
       ) : items.length === 0 || sections.length === 0 ? (
-        <p className={cls.muted}>{EMPTY_LIST_MESSAGE[items.length === 0 ? "all" : filter]}</p>
+        <EmptyState icon={PackageOpen} {...EMPTY_LIST_MESSAGE[items.length === 0 ? "all" : filter]} />
       ) : (
         <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
           {sections.map((section) => (
@@ -99,20 +135,36 @@ function ItemSection({
   showAvgAmount: boolean;
   showExpiresAt: boolean;
 } & RowHandlers) {
+  const marker = section.color ? (
+    <span aria-hidden className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: section.color }} />
+  ) : (
+    <MapPin aria-hidden className="h-4 w-4 shrink-0 text-zinc-400" />
+  );
+  const count = <Badge>{section.items.length} 件</Badge>;
+  // カテゴリ色の左バー (保管場所別・未設定はグレー)
+  const bar = { borderLeftColor: section.color ?? "transparent" };
+
   if (section.items.length === 0) {
     return (
-      <div className="flex items-center justify-between px-4 py-3">
-        <h3 className="font-medium">{section.title}</h3>
-        <span className="text-xs text-zinc-500">0 件</span>
+      <div className="flex items-center gap-2 border-l-4 px-4 py-3 text-zinc-400" style={bar}>
+        <span className="w-4" />
+        {marker}
+        <h3 className="flex-1 font-medium">{section.title}</h3>
+        {count}
       </div>
     );
   }
 
   return (
-    <details>
-      <summary className="flex cursor-pointer items-center justify-between px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/40">
-        <h3 className="font-medium">{section.title}</h3>
-        <span className="text-xs text-zinc-500">{section.items.length} 件</span>
+    <details className="group border-l-4" style={bar}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          aria-hidden
+          className="h-4 w-4 shrink-0 text-zinc-400 transition-transform group-open:rotate-90"
+        />
+        {marker}
+        <h3 className="flex-1 font-medium">{section.title}</h3>
+        {count}
       </summary>
       <ul className="divide-y divide-zinc-100 border-t border-zinc-100 dark:divide-zinc-800 dark:border-zinc-800">
         {section.items.map((item) => (
@@ -136,12 +188,13 @@ function ItemRow({
   showExpiresAt: boolean;
 } & RowHandlers) {
   const avgAmount = averageAmount(item);
+  const status = stockStatus(item);
 
   return (
-    <li className="px-4 py-3 pl-8">
+    <li className="px-4 py-3 sm:pl-10">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-medium break-words">{item.name}</span>
             <button
               type="button"
@@ -150,27 +203,28 @@ function ItemRow({
               title="名前を編集"
               className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
             >
-              ✎
+              <Pencil aria-hidden className="h-3.5 w-3.5" />
             </button>
+            {status !== "ok" && <Badge tone={STATUS_TONE[status]}>{STOCK_STATUS_LABEL[status]}</Badge>}
           </div>
           <AttributeButton
-            icon="▮▮▮"
+            icon={Barcode}
             title="バーコードを編集"
             value={item.barcode ? <span className="tabular-nums">{item.barcode}</span> : null}
             placeholder="未設定"
             onClick={() => onAction("barcode", item)}
           />
           <AttributeButton
-            icon="⊞"
+            icon={Layers}
             title="グループを編集"
-            value={item.group?.name ? <Badge>{item.group.name}</Badge> : null}
+            value={item.group?.name ? <AttrBadge>{item.group.name}</AttrBadge> : null}
             placeholder="グループ未設定"
             onClick={() => onAction("group", item)}
           />
           <AttributeButton
-            icon="📍"
+            icon={MapPin}
             title="保管場所を編集"
-            value={item.storage_location ? <Badge>{item.storage_location.description}</Badge> : null}
+            value={item.storage_location ? <AttrBadge>{item.storage_location.description}</AttrBadge> : null}
             placeholder="保管場所未設定"
             onClick={() => onAction("storage", item)}
           />
@@ -192,21 +246,21 @@ function ItemRow({
             </div>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => onDecrement(item)}
             disabled={item.stock <= 0}
-            aria-label="在庫減 (-1)"
-            title="在庫減 (-1)"
-            className="grid h-8 w-8 place-items-center rounded border border-zinc-300 text-lg leading-none hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            aria-label="払い出し (-1)"
+            title="払い出し (-1)"
+            className="grid h-8 w-8 place-items-center rounded-full border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
           >
-            −
+            <Minus aria-hidden className="h-4 w-4" />
           </button>
           <span
             className={
-              "min-w-10 text-center tabular-nums " +
-              (item.stock <= 0 ? "text-red-600" : "text-zinc-900 dark:text-zinc-100")
+              "min-w-10 text-center text-lg font-semibold tabular-nums " +
+              (item.stock <= 0 ? "text-red-600 dark:text-red-400" : "text-zinc-900 dark:text-zinc-100")
             }
           >
             {item.stock}
@@ -214,11 +268,11 @@ function ItemRow({
           <button
             type="button"
             onClick={() => onIncrement(item)}
-            aria-label="在庫増 (+1)"
-            title="在庫増 (+1)"
-            className="grid h-8 w-8 place-items-center rounded border border-zinc-300 text-lg leading-none hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            aria-label="入庫 (+1)"
+            title="入庫 (+1)"
+            className="grid h-8 w-8 place-items-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
           >
-            ＋
+            <Plus aria-hidden className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -227,9 +281,11 @@ function ItemRow({
             title="カテゴリを変更"
             className={`ml-1 ${cls.outlineButton}`}
           >
+            <Tags aria-hidden className="h-3.5 w-3.5" />
             移動
           </button>
           <button type="button" onClick={() => onAction("history", item)} className={cls.outlineButton}>
+            <History aria-hidden className="h-3.5 w-3.5" />
             履歴
           </button>
           <button
@@ -239,6 +295,7 @@ function ItemRow({
             title="削除"
             className={cls.dangerOutlineButton}
           >
+            <Trash2 aria-hidden className="h-3.5 w-3.5" />
             削除
           </button>
         </div>
@@ -248,13 +305,13 @@ function ItemRow({
 }
 
 function AttributeButton({
-  icon,
+  icon: Icon,
   title,
   value,
   placeholder,
   onClick,
 }: {
-  icon: string;
+  icon: LucideIcon;
   title: string;
   value: React.ReactNode | null;
   placeholder: string;
@@ -267,16 +324,16 @@ function AttributeButton({
       title={title}
       className="mt-0.5 flex items-center gap-1 text-left text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
     >
-      <span aria-hidden>{icon}</span>
+      <Icon aria-hidden className="h-3.5 w-3.5 shrink-0" />
       {value ?? <span className="italic text-zinc-400">{placeholder}</span>}
-      <span aria-hidden className="text-zinc-400">✎</span>
+      <Pencil aria-hidden className="h-3 w-3 text-zinc-400" />
     </button>
   );
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
+function AttrBadge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+    <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
       {children}
     </span>
   );

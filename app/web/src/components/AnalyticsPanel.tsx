@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ChartLine } from "lucide-react";
 import {
   api,
   type AnalyticsMetric,
@@ -12,6 +13,7 @@ import {
   ANALYTICS_GROUP_OPTIONS,
   ANALYTICS_METRIC_OPTIONS,
   ANALYTICS_PERIOD_OPTIONS,
+  ANALYTICS_DESCRIPTION,
   ANALYTICS_TITLE,
   chartScale,
   errorMessage,
@@ -19,7 +21,7 @@ import {
   formatMetricValue,
   seriesColor,
 } from "@/lib/inventory";
-import { ReloadButton, SegControl, cls } from "./ui";
+import { EmptyState, Hint, ReloadButton, SegControl, cls } from "./ui";
 
 export function AnalyticsPanel({
   query,
@@ -57,8 +59,11 @@ export function AnalyticsPanel({
 
   return (
     <section className={cls.card}>
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <h2 className="font-semibold">{ANALYTICS_TITLE[query.metric]}</h2>
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+        <div>
+          <h3 className="font-semibold">{ANALYTICS_TITLE[query.metric]}</h3>
+          <Hint>{ANALYTICS_DESCRIPTION[query.metric]}</Hint>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <SegControl
             value={query.metric}
@@ -81,7 +86,11 @@ export function AnalyticsPanel({
       {loading ? (
         <p className={cls.muted}>読み込み中...</p>
       ) : !data || data.series.length === 0 ? (
-        <p className={cls.muted}>履歴がありません</p>
+        <EmptyState
+          icon={ChartLine}
+          title="まだグラフにできる履歴がありません"
+          description="入庫や払い出しをすると、その記録がここに表示されます。"
+        />
       ) : (
         <AnalyticsLineChart data={data} period={query.period} metric={query.metric} />
       )}

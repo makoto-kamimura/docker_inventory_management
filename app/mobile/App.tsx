@@ -31,7 +31,7 @@ import {
 } from "./src/components/modals";
 import { ScanPanel } from "./src/components/ScanPanel";
 import { ScannerModal } from "./src/components/ScannerModal";
-import { SmallButton, TabButton, confirmDelete } from "./src/components/ui";
+import { LogoMark, SCREEN_ICON, SmallButton, TabButton, confirmDelete } from "./src/components/ui";
 import {
   draftFromBarcode,
   draftToInput,
@@ -40,15 +40,16 @@ import {
   type GroupBy,
   type ItemDraft,
   type ListFilter,
+  type Screen,
 } from "./src/inventory";
 import { styles } from "./src/styles";
 
-type Tab = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics";
+type Tab = Screen;
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "scan", label: "スキャン" },
   { value: "list", label: "在庫一覧" },
-  { value: "item", label: "物品" },
+  { value: "item", label: "物品追加" },
   { value: "category", label: "カテゴリ" },
   { value: "group", label: "グループ" },
   { value: "storage", label: "保管場所" },
@@ -355,12 +356,18 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
       <View style={styles.headerWrap}>
         <View style={styles.headerRow}>
           <View style={styles.headerTitle}>
-            <Text style={styles.h1}>ストクル</Text>
-            {user.tenant === "demo" && (
-              <View style={styles.demoBadge}>
-                <Text style={styles.demoBadgeText}>デモ環境</Text>
+            <LogoMark />
+            <View>
+              <View style={styles.headerTitle}>
+                <Text style={styles.h1}>ストクル</Text>
+                {user.tenant === "demo" && (
+                  <View style={styles.demoBadge}>
+                    <Text style={styles.demoBadgeText}>デモ環境</Text>
+                  </View>
+                )}
               </View>
-            )}
+              <Text style={styles.headerSub}>おうちの在庫を、スキャンでかんたん管理</Text>
+            </View>
           </View>
           <View style={styles.headerUser}>
             <Text style={styles.subtitle}>{user.name}</Text>
@@ -377,6 +384,7 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
           <TabButton
             key={t.value}
             label={t.label}
+            icon={SCREEN_ICON[t.value]}
             active={tab === t.value}
             onPress={() => setTab(t.value)}
           />

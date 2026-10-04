@@ -2,7 +2,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { Category, ItemGroup, StorageLocation } from "../api";
 import { canSubmitDraft, draftStock, type ItemDraft } from "../inventory";
 import { colors, styles } from "../styles";
-import { ChipSelect, DateField, FooterButton } from "./ui";
+import { Callout, ChipSelect, DateField, FieldLabel, FooterButton, Hint, ScreenIntro } from "./ui";
 
 export function ItemForm({
   draft,
@@ -22,11 +22,13 @@ export function ItemForm({
   return (
     <>
       <ScrollView style={styles.flex} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <ScreenIntro screen="item" />
         <View style={styles.card}>
-          <Text style={styles.h2}>物品追加</Text>
+          <Text style={styles.h2}>新しい物品</Text>
+          <Hint>名前とカテゴリを入れると追加できます。ほかの項目はあとから一覧で変更できます。</Hint>
           {draft.barcode && (
             <View style={styles.barcodeNotice}>
-              <Text style={styles.barcodeNoticeLabel}>バーコード</Text>
+              <Text style={styles.barcodeNoticeLabel}>スキャンしたバーコード</Text>
               <Text style={styles.barcodeNoticeValue}>{draft.barcode}</Text>
               <Pressable
                 onPress={() => onChange({ barcode: null })}
@@ -37,16 +39,17 @@ export function ItemForm({
               </Pressable>
             </View>
           )}
+          <FieldLabel label="名前" required />
           <TextInput
             style={styles.input}
             value={draft.name}
             onChangeText={(name) => onChange({ name })}
-            placeholder="名前"
+            placeholder="例: トイレットペーパー 12ロール"
             placeholderTextColor={colors.placeholder}
           />
-          <Text style={styles.label}>カテゴリ</Text>
+          <FieldLabel label="カテゴリ" required />
           {categories.length === 0 ? (
-            <Text style={styles.muted}>(カテゴリ未登録)</Text>
+            <Callout tone="warning">カテゴリがまだありません。先にカテゴリタブで作成してください。</Callout>
           ) : (
             <ChipSelect
               options={categories.map((c) => ({ value: c.id, label: c.name }))}
@@ -54,16 +57,17 @@ export function ItemForm({
               onChange={(categoryId) => onChange({ categoryId })}
             />
           )}
-          <Text style={styles.label}>初期在庫</Text>
+          <FieldLabel label="初期在庫" />
           <TextInput
             style={styles.input}
             value={draft.stock}
             onChangeText={(stock) => onChange({ stock })}
             keyboardType="number-pad"
           />
+          <Hint>0 のままにすると「在庫切れ」として登録されます。</Hint>
           {draftStock(draft) > 0 && (
-            <>
-              <Text style={styles.label}>単価 (任意)</Text>
+            <View style={styles.optionalBox}>
+              <FieldLabel label="単価" />
               <View style={styles.amountInputRow}>
                 <Text style={styles.amountPrefix}>¥</Text>
                 <TextInput
@@ -71,15 +75,17 @@ export function ItemForm({
                   value={draft.amount}
                   onChangeText={(amount) => onChange({ amount })}
                   keyboardType="number-pad"
-                  placeholder="例: 1200"
+                  placeholder="例: 480"
                   placeholderTextColor={colors.placeholder}
                 />
               </View>
-              <Text style={styles.label}>期限 (任意)</Text>
+              <Hint>平均単価として、在庫切れの一覧に表示されます。</Hint>
+              <FieldLabel label="期限" />
               <DateField value={draft.expiresAt} onChange={(expiresAt) => onChange({ expiresAt })} />
-            </>
+              <Hint>1ヶ月以内になると「期限間近」として表示されます。</Hint>
+            </View>
           )}
-          <Text style={styles.label}>グループ (任意)</Text>
+          <FieldLabel label="グループ" />
           <ChipSelect
             options={[
               { value: null, label: "なし" },
@@ -88,7 +94,8 @@ export function ItemForm({
             value={draft.groupId}
             onChange={(groupId) => onChange({ groupId })}
           />
-          <Text style={styles.label}>保管場所 (任意)</Text>
+          <Hint>銘柄違いなど、同じ用途の物品をまとめるときに使います。</Hint>
+          <FieldLabel label="保管場所" />
           <ChipSelect
             options={[
               { value: null, label: "なし" },

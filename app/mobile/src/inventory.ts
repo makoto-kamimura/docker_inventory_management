@@ -27,6 +27,66 @@ export function formatChange(change: number): string {
   return change > 0 ? `+${change}` : String(change);
 }
 
+// --- 画面の見出しと説明 ------------------------------------------------------
+
+export type Screen = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics";
+
+export const SCREEN_INTRO: Record<Screen, { title: string; description: string }> = {
+  scan: {
+    title: "スキャン",
+    description: "バーコードを読み取って、入庫・払い出し・物品の追加をすばやく行えます。",
+  },
+  list: {
+    title: "在庫一覧",
+    description: "カテゴリや保管場所ごとに在庫を確認できます。見出しを押すと中身が開きます。",
+  },
+  item: {
+    title: "物品追加",
+    description: "新しい物品を登録します。スキャンから来た場合はバーコードが自動で入ります。",
+  },
+  category: {
+    title: "カテゴリ",
+    description: "「食品」「日用品」など、物品の大きな分類です。一覧はカテゴリごとに色分けされます。",
+  },
+  group: {
+    title: "グループ",
+    description: "銘柄違いなど、同じ用途の物品をまとめます。全部が在庫切れになったときだけ「在庫切れ」に出ます。",
+  },
+  storage: {
+    title: "保管場所",
+    description: "「キッチン上の棚」など、物品を置いている場所です。一覧を保管場所別に表示できます。",
+  },
+  analytics: {
+    title: "分析",
+    description: "在庫数や補充にかかった金額の移り変わりを、日毎・月毎のグラフで確認できます。",
+  },
+};
+
+// --- 色分け ------------------------------------------------------------------
+
+/**
+ * カテゴリの色。DB には持たず、id から決める。
+ * しおりカレンダーの 12 色を、隣り合う id が似た色にならない順に並べている。
+ */
+export const CATEGORY_COLORS = [
+  "#3b82f6",
+  "#f97316",
+  "#10b981",
+  "#ec4899",
+  "#eab308",
+  "#8b5cf6",
+  "#ef4444",
+  "#06b6d4",
+  "#22c55e",
+  "#6366f1",
+  "#78716c",
+  "#6b7280",
+];
+
+export function categoryColor(id: number): string {
+  return CATEGORY_COLORS[Math.abs(id) % CATEGORY_COLORS.length];
+}
+
 // --- 日付 --------------------------------------------------------------------
 
 /** "YYYY-MM-DD" (時刻付きでも可) をローカルタイムの日付として解釈する */
@@ -68,13 +128,45 @@ export const GROUP_BY_OPTIONS: Option<GroupBy>[] = [
   { value: "storage", label: "保管場所別" },
 ];
 
-export const EMPTY_LIST_MESSAGE: Record<ListFilter, string> = {
-  all: "物品がありません",
-  out_of_stock: "在庫切れの物品はありません",
-  expires_soon: "期限が1ヶ月以内の物品はありません",
+export const EMPTY_LIST_MESSAGE: Record<ListFilter, { title: string; description: string }> = {
+  all: {
+    title: "まだ物品がありません",
+    description: "スキャンするか、物品追加タブから最初の物品を登録してください。",
+  },
+  out_of_stock: {
+    title: "在庫切れの物品はありません",
+    description: "在庫が 0 になった物品があると、ここに表示されます。",
+  },
+  expires_soon: {
+    title: "期限が近い物品はありません",
+    description: "期限が 1ヶ月以内 (期限切れを含む) の物品があると、ここに表示されます。",
+  },
 };
 
 const EXPIRES_SOON_DAYS = 30;
+
+function expiresSoonLimit(today: Date): Date {
+  const limit = new Date(today);
+  limit.setDate(today.getDate() + EXPIRES_SOON_DAYS);
+  return limit;
+}
+
+/** 品目の状態。一覧のバッジの色分けに使う */
+export type StockStatus = "out" | "expired" | "soon" | "ok";
+
+export const STOCK_STATUS_LABEL: Record<Exclude<StockStatus, "ok">, string> = {
+  out: "在庫切れ",
+  expired: "期限切れ",
+  soon: "期限間近",
+};
+
+export function stockStatus(item: Item, today = startOfToday()): StockStatus {
+  if (item.stock <= 0) return "out";
+  if (item.nearest_expires_at == null) return "ok";
+  const expiresAt = parseLocalDate(item.nearest_expires_at);
+  if (expiresAt < today) return "expired";
+  return expiresAt <= expiresSoonLimit(today) ? "soon" : "ok";
+}
 
 /**
  * 一覧フィルタ。
@@ -95,8 +187,7 @@ export function filterItems(
     );
   }
   if (filter === "expires_soon") {
-    const limit = new Date(today);
-    limit.setDate(today.getDate() + EXPIRES_SOON_DAYS);
+    const limit = expiresSoonLimit(today);
     return items.filter(
       (it) => it.nearest_expires_at != null && parseLocalDate(it.nearest_expires_at) <= limit,
     );
@@ -104,7 +195,8 @@ export function filterItems(
   return items;
 }
 
-export type ItemSection = { key: string; title: string; items: Item[] };
+/** color はカテゴリ別のときのカテゴリ色 (保管場所別・未設定は null) */
+export type ItemSection = { key: string; title: string; color: string | null; items: Item[] };
 
 /**
  * 一覧をカテゴリ別 / 保管場所別のセクションに分ける。
@@ -134,12 +226,18 @@ export function buildSections(
   }
 
   const sections = groups
-    .map((g) => ({ key: `${groupBy}-${g.id}`, title: g.title, items: buckets.get(g.id) ?? [] }))
+    .map((g) => ({
+      key: `${groupBy}-${g.id}`,
+      title: g.title,
+      color: groupBy === "category" ? categoryColor(g.id) : null,
+      items: buckets.get(g.id) ?? [],
+    }))
     .filter((s) => filter === "all" || s.items.length > 0);
   if (orphan.length > 0) {
     sections.push({
       key: `${groupBy}-none`,
       title: groupBy === "category" ? "(カテゴリ未設定)" : "(保管場所未設定)",
+      color: null,
       items: orphan,
     });
   }
@@ -241,6 +339,11 @@ export const ANALYTICS_GROUP_OPTIONS: Option<AnalyticsGroup>[] = [
 export const ANALYTICS_TITLE: Record<AnalyticsMetric, string> = {
   stock: "在庫数の推移",
   amount: "補充金額の推移",
+};
+
+export const ANALYTICS_DESCRIPTION: Record<AnalyticsMetric, string> = {
+  stock: "各日 (各月) の終わり時点の在庫の合計です。",
+  amount: "在庫切れからの補充や物品追加のときに入力した金額の合計です。",
 };
 
 export const SERIES_COLORS = [

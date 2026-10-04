@@ -9,7 +9,8 @@ import {
   isValidAmount,
   parseAmount,
 } from "@/lib/inventory";
-import { Modal, ModalActions, cls, useBusy } from "./ui";
+import { ArrowDownToLine, ArrowUpFromLine, Barcode, TriangleAlert } from "lucide-react";
+import { Badge, Callout, Hint, Modal, ModalActions, cls, useBusy } from "./ui";
 
 export function NameEditModal({
   item,
@@ -169,7 +170,12 @@ export function ConfirmDeleteModal({
 
   return (
     <Modal title={title} onClose={onClose}>
-      <p className="text-sm text-zinc-700 dark:text-zinc-300">{message}</p>
+      <div className="flex items-start gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-300">
+          <TriangleAlert aria-hidden className="h-5 w-5" />
+        </span>
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">{message}</p>
+      </div>
       <ModalActions>
         <button type="button" onClick={onClose} disabled={deleting} className={cls.secondaryButton}>
           キャンセル
@@ -202,9 +208,10 @@ export function AmountModal({
 
   return (
     <Modal title={`${item.name} の補充 (+1)`} onClose={onClose}>
-      <p className="text-sm text-zinc-500">
-        在庫切れからの補充です。金額と期限を入力してください（どちらも任意）。
-      </p>
+      <Callout tone="success">
+        在庫切れからの補充です。金額と期限を入れておくと、平均単価や期限の表示に使われます（どちらも任意）。
+      </Callout>
+      <label className={`block ${cls.label}`}>金額</label>
       <div className="flex items-center gap-2">
         <span className="text-zinc-500">¥</span>
         <input
@@ -220,13 +227,14 @@ export function AmountModal({
         />
       </div>
       <div className="space-y-1">
-        <label className="text-sm text-zinc-600 dark:text-zinc-400">期限 (任意)</label>
+        <label className={cls.label}>期限</label>
         <input
           type="date"
           value={expiresAt}
           onChange={(e) => setExpiresAt(e.target.value)}
           className={cls.input}
         />
+        <Hint>1ヶ月以内になると、在庫一覧で「期限間近」と表示されます。</Hint>
       </div>
       <ModalActions>
         <button type="button" onClick={onClose} disabled={saving} className={cls.secondaryButton}>
@@ -280,7 +288,14 @@ export function HistoryModal({ item, onClose }: { item: Item; onClose: () => voi
             >
               <span className="flex flex-col gap-0.5">
                 <span className="flex items-baseline gap-2">
-                  <span className="tabular-nums">{formatChange(h.change)}</span>
+                  <span
+                    className={
+                      "font-semibold tabular-nums " +
+                      (h.change > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")
+                    }
+                  >
+                    {formatChange(h.change)}
+                  </span>
                   {h.amount != null && (
                     <span className="text-xs text-emerald-600 tabular-nums dark:text-emerald-400">
                       {formatYen(h.amount)}
@@ -364,42 +379,46 @@ export function ScanActionModal({
   onIncrement: () => void;
   onDecrement: () => void;
 }) {
+  const canDecrement = item.stock > 0;
+
   return (
     <Modal title="入庫 / 払い出し" onClose={onClose}>
-      <div className="space-y-1">
-        <p className="font-medium break-words">{item.name}</p>
-        {item.barcode && (
-          <p className="font-mono text-xs tabular-nums text-zinc-500">{item.barcode}</p>
-        )}
-        <p className="text-sm text-zinc-500">
-          現在の在庫{" "}
-          <span
-            className={
-              "tabular-nums " + (item.stock <= 0 ? "text-red-600" : "text-zinc-900 dark:text-zinc-100")
-            }
-          >
-            {item.stock}
-          </span>
-        </p>
+      <div className="space-y-1 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-900/60">
+        <p className="font-semibold break-words">{item.name}</p>
+        <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
+          {item.barcode && (
+            <span className="inline-flex items-center gap-1 font-mono text-xs tabular-nums">
+              <Barcode aria-hidden className="h-3.5 w-3.5" />
+              {item.barcode}
+            </span>
+          )}
+          <Badge tone={canDecrement ? "info" : "danger"}>
+            {canDecrement ? `現在の在庫 ${item.stock}` : "在庫切れ"}
+          </Badge>
+        </div>
       </div>
+      <p className="text-sm text-zinc-500">買ってきたら「入庫」、使ったら「払い出し」を選んでください。</p>
       <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
           onClick={onIncrement}
           autoFocus
-          className="rounded-lg bg-zinc-900 py-4 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="flex flex-col items-center gap-1 rounded-xl bg-emerald-600 py-4 font-bold text-white shadow-sm hover:bg-emerald-700"
         >
-          ＋ 入庫 (+1)
+          <ArrowDownToLine aria-hidden className="h-6 w-6" />
+          入庫 (+1)
         </button>
         <button
           type="button"
           onClick={onDecrement}
-          disabled={item.stock <= 0}
-          className="rounded-lg border border-zinc-300 py-4 text-base font-semibold hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          disabled={!canDecrement}
+          className="flex flex-col items-center gap-1 rounded-xl bg-amber-500 py-4 font-bold text-white shadow-sm hover:bg-amber-600 disabled:opacity-40"
         >
-          − 払い出し (-1)
+          <ArrowUpFromLine aria-hidden className="h-6 w-6" />
+          払い出し (-1)
         </button>
       </div>
+      {!canDecrement && <Hint>在庫が 0 のため、払い出しはできません。入庫すると金額と期限を入力できます。</Hint>}
       <ModalActions>
         <button type="button" onClick={onClose} className={cls.secondaryButton}>
           キャンセル

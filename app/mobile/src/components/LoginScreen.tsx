@@ -4,7 +4,7 @@ import { SafeAreaView, Text, TextInput, View } from "react-native";
 import { api, apiBaseUrl, type User } from "../api";
 import { errorMessage } from "../inventory";
 import { colors, styles } from "../styles";
-import { PrimaryButton } from "./ui";
+import { LogoMark, PrimaryButton } from "./ui";
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
@@ -28,8 +28,13 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
     <SafeAreaView style={styles.safe}>
       <StatusBar style="auto" />
       <View style={styles.loginWrap}>
+        <View style={styles.loginHero}>
+          <LogoMark large />
+          <Text style={styles.h1}>ストクル</Text>
+          <Text style={styles.loginTagline}>おうちの在庫を、スキャンでかんたん管理</Text>
+        </View>
         <View style={styles.card}>
-          <Text style={styles.h1}>ストクル ログイン</Text>
+          <Text style={styles.h2}>ログイン</Text>
           {error && <Text style={styles.loginError}>{error}</Text>}
           <Text style={styles.label}>メールアドレス</Text>
           <TextInput

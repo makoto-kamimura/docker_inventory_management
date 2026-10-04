@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { api, type Item, type ItemHistory } from "../api";
 import { errorMessage, formatChange, formatYen, isValidAmount, parseAmount } from "../inventory";
 import { colors, styles } from "../styles";
@@ -225,6 +225,60 @@ export function HistoryModal({ item, onClose }: { item: Item; onClose: () => voi
           )}
         />
       )}
+    </Overlay>
+  );
+}
+
+/** スキャンした品目が登録済みのとき、入庫 (+1) か払い出し (-1) かを選ぶ */
+export function ScanActionModal({
+  item,
+  onClose,
+  onIncrement,
+  onDecrement,
+}: {
+  item: Item;
+  onClose: () => void;
+  onIncrement: () => void;
+  onDecrement: () => void;
+}) {
+  const canDecrement = item.stock > 0;
+
+  return (
+    <Overlay title="入庫 / 払い出し" onClose={onClose}>
+      <View>
+        <Text style={styles.scanItemName}>{item.name}</Text>
+        {item.barcode && <Text style={styles.scanBarcode}>{item.barcode}</Text>}
+      </View>
+      <View style={styles.cardHeader}>
+        <Text style={styles.label}>現在の在庫</Text>
+        <Text style={[styles.stock, item.stock <= 0 && styles.stockEmpty]}>{item.stock}</Text>
+      </View>
+      <View style={styles.scanChoiceRow}>
+        <Pressable
+          onPress={onIncrement}
+          style={({ pressed }) => [
+            styles.scanChoice,
+            styles.scanChoicePrimary,
+            pressed && styles.buttonPressed,
+          ]}
+        >
+          <Text style={[styles.scanChoiceText, styles.scanChoiceTextPrimary]}>＋ 入庫 (+1)</Text>
+        </Pressable>
+        <Pressable
+          onPress={onDecrement}
+          disabled={!canDecrement}
+          style={({ pressed }) => [
+            styles.scanChoice,
+            !canDecrement && styles.scanChoiceDisabled,
+            pressed && styles.buttonPressed,
+          ]}
+        >
+          <Text style={styles.scanChoiceText}>− 払い出し (-1)</Text>
+        </Pressable>
+      </View>
+      <View style={styles.actions}>
+        <SmallButton label="キャンセル" onPress={onClose} />
+      </View>
     </Overlay>
   );
 }

@@ -75,11 +75,6 @@ export type ItemHistory = {
   user?: { id: number; name: string } | null;
 };
 
-export type ScanResult =
-  | { action: "incremented"; item: Item }
-  | { action: "needs_amount"; item: Item }
-  | { action: "not_found"; barcode: string };
-
 export type Inventory = {
   items: Item[];
   categories: Category[];
@@ -253,14 +248,6 @@ export const api = {
 
   createItem: (input: CreateItemInput) =>
     request<Item>("/api/items", withBody("POST", input)),
-
-  // 登録済みなら在庫 +1 (在庫0なら金額入力が必要なので加算しない)、未登録なら not_found
-  scanBarcode: async (barcode: string): Promise<ScanResult> => {
-    const res = await send("/api/items/scan", withBody("POST", { barcode }));
-    if (res.status === 404) return { action: "not_found", barcode };
-    if (!res.ok) throw await errorFrom(res);
-    return (await res.json()) as ScanResult;
-  },
 
   decrementItem: (id: number) =>
     request<Item>(`/api/items/${id}/decrement`, { method: "PUT" }),

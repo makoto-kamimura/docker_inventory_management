@@ -109,7 +109,7 @@ function ItemSection({
   }
 
   return (
-    <details open>
+    <details>
       <summary className="flex cursor-pointer items-center justify-between px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/40">
         <h3 className="font-medium">{section.title}</h3>
         <span className="text-xs text-zinc-500">{section.items.length} 件</span>

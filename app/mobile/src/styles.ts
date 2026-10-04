@@ -244,6 +244,36 @@ export const styles = StyleSheet.create({
   },
   stockEmpty: { color: colors.danger },
 
+  // --- スキャン ---
+  scanCard: { alignItems: "center", paddingVertical: 40, gap: 20 },
+  scanHint: { fontSize: 13, color: colors.subtle, textAlign: "center" },
+  scanButton: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: colors.text,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  scanButtonIcon: { color: "#fff", fontSize: 44, lineHeight: 48 },
+  scanButtonText: { color: "#fff", fontSize: 18, fontWeight: "600" },
+  scanItemName: { fontSize: 16, fontWeight: "600", color: colors.text },
+  scanBarcode: { fontSize: 12, color: colors.subtle, fontVariant: ["tabular-nums"] },
+  scanChoiceRow: { flexDirection: "row", gap: 12 },
+  scanChoice: {
+    flex: 1,
+    paddingVertical: 18,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.text,
+  },
+  scanChoicePrimary: { backgroundColor: colors.text },
+  scanChoiceDisabled: { opacity: 0.4 },
+  scanChoiceText: { fontSize: 16, fontWeight: "600", color: colors.text },
+  scanChoiceTextPrimary: { color: "#fff" },
+
   // --- 物品追加 ---
   barcodeNotice: {
     flexDirection: "row",

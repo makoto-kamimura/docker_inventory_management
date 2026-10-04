@@ -1,9 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { Layers, MapPin, Tags, Trash2 } from "lucide-react";
 import { api, type Category, type Item, type ItemGroup, type StorageLocation } from "@/lib/api";
+import { categoryColor } from "@/lib/inventory";
 import { ConfirmDeleteModal } from "./modals";
-import { AddForm, ListCard, cls } from "./ui";
+import { AddForm, Badge, ListCard, cls } from "./ui";
+
+function DeleteButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={cls.dangerOutlineButton}>
+      <Trash2 aria-hidden className="h-3.5 w-3.5" />
+      削除
+    </button>
+  );
+}
 
 /** API 呼び出し → 再読み込み。失敗時はエラー表示して false を返す */
 export type Perform = (action: () => Promise<unknown>) => Promise<boolean>;
@@ -26,23 +37,36 @@ export function CategoryManager({
 
   return (
     <div className="space-y-6">
-      <AddForm title="カテゴリ追加" disabled={!name.trim()} onSubmit={add}>
+      <AddForm
+        title="カテゴリ追加"
+        description="色は自動で割り当てられ、在庫一覧の見出しに表示されます。"
+        disabled={!name.trim()}
+        onSubmit={add}
+      >
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="例: 工具"
+          placeholder="例: 食品、日用品、工具"
           className={cls.input}
         />
       </AddForm>
 
-      <ListCard title="カテゴリ一覧" loading={loading} emptyText="カテゴリがありません" isEmpty={categories.length === 0}>
+      <ListCard
+        title="カテゴリ一覧"
+        icon={Tags}
+        loading={loading}
+        emptyText="カテゴリがありません"
+        emptyDescription="物品を登録するには、先にカテゴリを 1 つ以上作成してください。"
+        isEmpty={categories.length === 0}
+      >
         {categories.map((c) => (
           <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="font-medium">{c.name}</span>
-            <button type="button" onClick={() => setDeleteTarget(c)} className={cls.dangerOutlineButton}>
-              削除
-            </button>
+            <span className="flex items-center gap-2 font-medium">
+              <span aria-hidden className="h-3 w-3 rounded-full" style={{ backgroundColor: categoryColor(c.id) }} />
+              {c.name}
+            </span>
+            <DeleteButton onClick={() => setDeleteTarget(c)} />
           </li>
         ))}
       </ListCard>
@@ -82,39 +106,49 @@ export function GroupManager({
 
   return (
     <div className="space-y-6">
-      <AddForm title="グループ追加" disabled={!name.trim()} onSubmit={add}>
-        <p className="text-sm text-zinc-500">
-          グループを作成し、複数の品目をまとめます。在庫切れ表示ではグループ内に在庫がある品目が1つでもあればグループ全体が表示されません。
-        </p>
+      <AddForm
+        title="グループ追加"
+        description="在庫切れの絞り込みでは、グループ内に在庫のある品目が 1 つでもあれば表示されません。"
+        disabled={!name.trim()}
+        onSubmit={add}
+      >
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="例: トナーカートリッジ"
+          placeholder="例: 食器用洗剤"
           className={cls.input}
         />
       </AddForm>
 
-      <ListCard title="グループ一覧" loading={loading} emptyText="グループがありません" isEmpty={itemGroups.length === 0}>
+      <ListCard
+        title="グループ一覧"
+        icon={Layers}
+        loading={loading}
+        emptyText="グループがありません"
+        emptyDescription="グループを作ったら、在庫一覧の品目から設定できます。"
+        isEmpty={itemGroups.length === 0}
+      >
         {itemGroups.map((g) => {
           const members = items.filter((it) => it.group_id === g.id);
           return (
             <li key={g.id} className="px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="flex items-center gap-2">
+                  <Layers aria-hidden className="h-4 w-4 text-zinc-400" />
                   <span className="font-medium">{g.name}</span>
-                  <span className="ml-2 text-xs text-zinc-500">{members.length} 品目</span>
+                  <Badge>{members.length} 品目</Badge>
                 </div>
-                <button type="button" onClick={() => setDeleteTarget(g)} className={cls.dangerOutlineButton}>
-                  削除
-                </button>
+                <DeleteButton onClick={() => setDeleteTarget(g)} />
               </div>
               {members.length > 0 && (
-                <ul className="mt-2 space-y-0.5 pl-2">
+                <ul className="mt-2 flex flex-wrap gap-1.5 pl-6">
                   {members.map((it) => (
-                    <li key={it.id} className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                      <span className={it.stock <= 0 ? "text-red-500" : ""}>{it.name}</span>
-                      <span className="tabular-nums text-xs">({it.stock})</span>
+                    <li key={it.id}>
+                      <Badge tone={it.stock <= 0 ? "danger" : "neutral"}>
+                        {it.name}
+                        <span className="tabular-nums opacity-70">{it.stock}</span>
+                      </Badge>
                     </li>
                   ))}
                 </ul>
@@ -157,11 +191,16 @@ export function StorageManager({
 
   return (
     <div className="space-y-6">
-      <AddForm title="保管場所追加" disabled={!description.trim()} onSubmit={add}>
+      <AddForm
+        title="保管場所追加"
+        description="棚や部屋など、探すときにわかる書き方がおすすめです。"
+        disabled={!description.trim()}
+        onSubmit={add}
+      >
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="保管場所 (自由記述)　例: 2F 倉庫 棚A-3"
+          placeholder="例: キッチン 吊り戸棚の左"
           rows={2}
           className={cls.input}
         />
@@ -169,16 +208,17 @@ export function StorageManager({
 
       <ListCard
         title="保管場所一覧"
+        icon={MapPin}
         loading={loading}
         emptyText="保管場所がありません"
+        emptyDescription="保管場所を登録すると、在庫一覧を場所ごとに表示できます。"
         isEmpty={storageLocations.length === 0}
       >
         {storageLocations.map((sl) => (
           <li key={sl.id} className="flex items-start justify-between gap-3 px-4 py-3">
+            <MapPin aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
             <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{sl.description}</span>
-            <button type="button" onClick={() => setDeleteTarget(sl)} className={cls.dangerOutlineButton}>
-              削除
-            </button>
+            <DeleteButton onClick={() => setDeleteTarget(sl)} />
           </li>
         ))}
       </ListCard>

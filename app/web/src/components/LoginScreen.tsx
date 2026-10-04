@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { api, type User } from "@/lib/api";
 import { errorMessage } from "@/lib/inventory";
-import { cls } from "./ui";
+import { CalendarClock, ScanLine, TriangleAlert } from "lucide-react";
+import { LogoMark, cls } from "./ui";
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
@@ -24,7 +25,14 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
   };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center gap-6 px-6 py-10">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <LogoMark size="lg" />
+        <div>
+          <h1 className="text-2xl font-bold">ストクル</h1>
+          <p className="text-sm text-zinc-500">おうちの在庫を、スキャンでかんたん管理</p>
+        </div>
+      </div>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -32,14 +40,15 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
         }}
         className={`space-y-4 p-6 ${cls.card}`}
       >
-        <h1 className="text-xl font-bold">ストクル ログイン</h1>
+        <h2 className="font-semibold">ログイン</h2>
         {error && (
-          <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
             {error}
           </div>
         )}
         <div className="space-y-1">
-          <label className="text-sm text-zinc-600 dark:text-zinc-300">メールアドレス</label>
+          <label className={cls.label}>メールアドレス</label>
           <input
             type="email"
             value={email}
@@ -49,7 +58,7 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-zinc-600 dark:text-zinc-300">パスワード</label>
+          <label className={cls.label}>パスワード</label>
           <input
             type="password"
             value={password}
@@ -61,11 +70,21 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
         <button
           type="submit"
           disabled={submitting || !email.trim() || !password}
-          className="w-full rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="w-full rounded-lg bg-primary px-4 py-2.5 font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-40"
         >
           {submitting ? "ログイン中..." : "ログイン"}
         </button>
       </form>
+      <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+        <li className="flex items-center gap-1.5 whitespace-nowrap">
+          <ScanLine aria-hidden className="h-4 w-4 text-primary" />
+          バーコードで入庫・払い出し
+        </li>
+        <li className="flex items-center gap-1.5 whitespace-nowrap">
+          <CalendarClock aria-hidden className="h-4 w-4 text-amber-600" />
+          在庫切れ・期限をひと目で
+        </li>
+      </ul>
     </main>
   );
 }

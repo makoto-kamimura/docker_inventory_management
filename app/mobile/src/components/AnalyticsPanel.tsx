@@ -11,6 +11,7 @@ import {
   ANALYTICS_GROUP_OPTIONS,
   ANALYTICS_METRIC_OPTIONS,
   ANALYTICS_PERIOD_OPTIONS,
+  ANALYTICS_DESCRIPTION,
   ANALYTICS_TITLE,
   chartScale,
   errorMessage,
@@ -19,7 +20,7 @@ import {
   seriesColor,
 } from "../inventory";
 import { colors, styles } from "../styles";
-import { ChipSelect, IconButton } from "./ui";
+import { ChipSelect, EmptyState, Hint, IconButton, ScreenIntro } from "./ui";
 
 export function AnalyticsPanel({
   query,
@@ -56,11 +57,13 @@ export function AnalyticsPanel({
 
   return (
     <ScrollView contentContainerStyle={styles.scroll}>
+      <ScreenIntro screen="analytics" />
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.h2}>{ANALYTICS_TITLE[query.metric]}</Text>
           <IconButton label="再読み込み" icon="↻" onPress={() => setReloadCount((n) => n + 1)} />
         </View>
+        <Hint>{ANALYTICS_DESCRIPTION[query.metric]}</Hint>
         <ChipSelect
           options={ANALYTICS_METRIC_OPTIONS}
           value={query.metric}
@@ -79,7 +82,11 @@ export function AnalyticsPanel({
         {loading ? (
           <ActivityIndicator />
         ) : !data || data.series.length === 0 ? (
-          <Text style={styles.muted}>履歴がありません</Text>
+          <EmptyState
+            icon="📈"
+            title="まだグラフにできる履歴がありません"
+            description="入庫や払い出しをすると、その記録がここに表示されます。"
+          />
         ) : (
           <LineChart data={data} period={query.period} metric={query.metric} />
         )}

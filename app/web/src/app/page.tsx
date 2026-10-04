@@ -1,6 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  ChartLine,
+  Layers,
+  LogOut,
+  MapPin,
+  Package,
+  PackagePlus,
+  ScanLine,
+  Tags,
+  type LucideIcon,
+} from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { InventoryList, type ItemAction } from "@/components/InventoryList";
 import { ItemForm } from "@/components/ItemForm";
@@ -22,7 +33,7 @@ import {
   ScanActionModal,
   SelectEditModal,
 } from "@/components/modals";
-import { Banner, TabButton, cls } from "@/components/ui";
+import { Banner, LogoMark, PageIntro, TabButton, cls } from "@/components/ui";
 import {
   api,
   getToken,
@@ -37,21 +48,23 @@ import {
   draftToInput,
   emptyDraft,
   errorMessage,
+  SCREEN_INTRO,
   type GroupBy,
   type ItemDraft,
   type ListFilter,
+  type Screen,
 } from "@/lib/inventory";
 
-type Tab = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics";
+type Tab = Screen;
 
-const TABS: { value: Tab; label: string }[] = [
-  { value: "scan", label: "スキャン" },
-  { value: "list", label: "在庫一覧" },
-  { value: "item", label: "物品追加" },
-  { value: "category", label: "カテゴリ管理" },
-  { value: "group", label: "グループ管理" },
-  { value: "storage", label: "保管場所管理" },
-  { value: "analytics", label: "分析" },
+const TABS: { value: Tab; label: string; icon: LucideIcon }[] = [
+  { value: "scan", label: "スキャン", icon: ScanLine },
+  { value: "list", label: "在庫一覧", icon: Package },
+  { value: "item", label: "物品追加", icon: PackagePlus },
+  { value: "category", label: "カテゴリ", icon: Tags },
+  { value: "group", label: "グループ", icon: Layers },
+  { value: "storage", label: "保管場所", icon: MapPin },
+  { value: "analytics", label: "分析", icon: ChartLine },
 ];
 
 type Dialog = { kind: ItemAction | "amount" | "scanAction"; item: Item } | { kind: "scan" };
@@ -323,29 +336,45 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
   return (
     <main className={`${CONTAINER} py-6 sm:py-10 space-y-6 pb-24`}>
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">ストクル</h1>
-          {user.tenant === "demo" && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-              デモ環境（サンプルデータ）
-            </span>
-          )}
+        <div className="flex items-center gap-3">
+          <LogoMark />
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-bold">ストクル</h1>
+              {user.tenant === "demo" && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  デモ環境（サンプルデータ）
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-zinc-500">おうちの在庫を、スキャンでかんたん管理</p>
+          </div>
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-zinc-500">{user.name}</span>
           <button type="button" onClick={handleLogout} className={cls.outlineButton}>
+            <LogOut aria-hidden className="h-4 w-4" />
             ログアウト
           </button>
         </div>
       </header>
 
-      <nav role="tablist" className="flex flex-wrap gap-1 border-b border-zinc-200 dark:border-zinc-800">
+      <nav
+        role="tablist"
+        className="-mx-6 flex gap-1 overflow-x-auto border-b border-zinc-200 px-6 dark:border-zinc-800 sm:mx-0 sm:px-0"
+      >
         {TABS.map((t) => (
-          <TabButton key={t.value} active={tab === t.value} onClick={() => setTab(t.value)}>
+          <TabButton key={t.value} active={tab === t.value} icon={t.icon} onClick={() => setTab(t.value)}>
             {t.label}
           </TabButton>
         ))}
       </nav>
+
+      <PageIntro
+        icon={TABS.find((t) => t.value === tab)?.icon ?? ScanLine}
+        title={SCREEN_INTRO[tab].title}
+        description={SCREEN_INTRO[tab].description}
+      />
 
       {banner && (
         <Banner tone={banner.tone} onClose={() => setBanner(null)}>

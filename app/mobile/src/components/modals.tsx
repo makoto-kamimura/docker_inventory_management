@@ -3,7 +3,18 @@ import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "r
 import { api, type Item, type ItemHistory } from "../api";
 import { errorMessage, formatChange, formatYen, isValidAmount, parseAmount } from "../inventory";
 import { colors, styles } from "../styles";
-import { ChipSelect, DateField, Overlay, PrimaryButton, SmallButton, useBusy } from "./ui";
+import {
+  Badge,
+  Callout,
+  ChipSelect,
+  DateField,
+  FieldLabel,
+  Hint,
+  Overlay,
+  PrimaryButton,
+  SmallButton,
+  useBusy,
+} from "./ui";
 
 export function NameEditModal({
   item,
@@ -149,10 +160,10 @@ export function AmountModal({
 
   return (
     <Overlay title={`${item.name} の補充 (+1)`} onClose={onClose}>
-      <Text style={styles.muted}>
-        在庫切れからの補充です。金額と期限を入力してください（どちらも任意）。
-      </Text>
-      <Text style={styles.label}>金額 (円)</Text>
+      <Callout tone="success">
+        在庫切れからの補充です。金額と期限を入れておくと、平均単価や期限の表示に使われます（どちらも任意）。
+      </Callout>
+      <FieldLabel label="金額 (円)" />
       <View style={styles.amountInputRow}>
         <Text style={styles.amountPrefix}>¥</Text>
         <TextInput
@@ -165,8 +176,9 @@ export function AmountModal({
           autoFocus
         />
       </View>
-      <Text style={styles.label}>期限 (任意)</Text>
+      <FieldLabel label="期限" />
       <DateField value={expiresAt} onChange={setExpiresAt} />
+      <Hint>1ヶ月以内になると、在庫一覧で「期限間近」と表示されます。</Hint>
       <View style={styles.actions}>
         <SmallButton label="キャンセル" onPress={onClose} disabled={saving} />
         <SmallButton label="金額なしで +1" onPress={() => submit(false)} disabled={saving} />
@@ -211,7 +223,11 @@ export function HistoryModal({ item, onClose }: { item: Item; onClose: () => voi
           renderItem={({ item: h }) => (
             <View style={styles.historyRow}>
               <View style={styles.historyLeft}>
-                <Text style={styles.historyChange}>{formatChange(h.change)}</Text>
+                <Text
+                  style={[styles.historyChange, h.change > 0 ? styles.historyChangeIn : styles.historyChangeOut]}
+                >
+                  {formatChange(h.change)}
+                </Text>
                 <View>
                   {h.amount != null && <Text style={styles.historyAmount}>{formatYen(h.amount)}</Text>}
                   {h.expires_at != null && <Text style={styles.historyExpires}>期限 {h.expires_at}</Text>}
@@ -245,37 +261,46 @@ export function ScanActionModal({
 
   return (
     <Overlay title="入庫 / 払い出し" onClose={onClose}>
-      <View>
+      <View style={styles.scanItemBox}>
         <Text style={styles.scanItemName}>{item.name}</Text>
-        {item.barcode && <Text style={styles.scanBarcode}>{item.barcode}</Text>}
+        {item.barcode && <Text style={styles.scanBarcode}>▮▮▮ {item.barcode}</Text>}
+        <Badge
+          tone={canDecrement ? "info" : "danger"}
+          label={canDecrement ? `現在の在庫 ${item.stock}` : "在庫切れ"}
+        />
       </View>
-      <View style={styles.cardHeader}>
-        <Text style={styles.label}>現在の在庫</Text>
-        <Text style={[styles.stock, item.stock <= 0 && styles.stockEmpty]}>{item.stock}</Text>
-      </View>
+      <Hint>買ってきたら「入庫」、使ったら「払い出し」を選んでください。</Hint>
       <View style={styles.scanChoiceRow}>
         <Pressable
           onPress={onIncrement}
+          accessibilityLabel="入庫 (+1)"
           style={({ pressed }) => [
             styles.scanChoice,
-            styles.scanChoicePrimary,
+            styles.scanChoiceIncrement,
             pressed && styles.buttonPressed,
           ]}
         >
-          <Text style={[styles.scanChoiceText, styles.scanChoiceTextPrimary]}>＋ 入庫 (+1)</Text>
+          <Text style={styles.scanChoiceIcon}>＋</Text>
+          <Text style={styles.scanChoiceText}>入庫 (+1)</Text>
         </Pressable>
         <Pressable
           onPress={onDecrement}
           disabled={!canDecrement}
+          accessibilityLabel="払い出し (-1)"
           style={({ pressed }) => [
             styles.scanChoice,
+            styles.scanChoiceDecrement,
             !canDecrement && styles.scanChoiceDisabled,
             pressed && styles.buttonPressed,
           ]}
         >
-          <Text style={styles.scanChoiceText}>− 払い出し (-1)</Text>
+          <Text style={styles.scanChoiceIcon}>−</Text>
+          <Text style={styles.scanChoiceText}>払い出し (-1)</Text>
         </Pressable>
       </View>
+      {!canDecrement && (
+        <Hint>在庫が 0 のため、払い出しはできません。入庫すると金額と期限を入力できます。</Hint>
+      )}
       <View style={styles.actions}>
         <SmallButton label="キャンセル" onPress={onClose} />
       </View>

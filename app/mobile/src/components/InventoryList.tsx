@@ -5,16 +5,25 @@ import {
   EMPTY_LIST_MESSAGE,
   GROUP_BY_OPTIONS,
   LIST_FILTER_OPTIONS,
+  STOCK_STATUS_LABEL,
   averageAmount,
   buildSections,
   formatYen,
   isExpired,
+  stockStatus,
   type GroupBy,
   type ItemSection as Section,
   type ListFilter,
+  type StockStatus,
 } from "../inventory";
-import { styles } from "../styles";
-import { ChipSelect, IconButton, SmallButton } from "./ui";
+import { colors, styles } from "../styles";
+import { Badge, ChipSelect, EmptyState, IconButton, ScreenIntro, SmallButton, type Tone } from "./ui";
+
+const STATUS_TONE: Record<Exclude<StockStatus, "ok">, Tone> = {
+  out: "danger",
+  expired: "danger",
+  soon: "warning",
+};
 
 /**
  * 品目行から開くダイアログの種類。
@@ -62,19 +71,24 @@ export function InventoryList({
       contentContainerStyle={styles.scroll}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
+      <ScreenIntro screen="list" />
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.h2}>在庫一覧</Text>
+          <Text style={styles.label}>絞り込み・表示</Text>
           <IconButton label="再読み込み" icon="↻" onPress={onRefresh} />
         </View>
         <ChipSelect options={LIST_FILTER_OPTIONS} value={filter} onChange={onChangeFilter} />
         <ChipSelect options={GROUP_BY_OPTIONS} value={groupBy} onChange={onChangeGroupBy} />
+        <View style={styles.legendInline}>
+          <Text style={[styles.legendInlineText, { color: colors.successText }]}>＋ 入庫</Text>
+          <Text style={[styles.legendInlineText, { color: colors.warningText }]}>− 払い出し</Text>
+          <Badge tone="danger" label="在庫切れ・期限切れ" />
+          <Badge tone="warning" label="期限間近" />
+        </View>
         {loading ? (
           <ActivityIndicator />
         ) : items.length === 0 || sections.length === 0 ? (
-          <Text style={styles.muted}>
-            {EMPTY_LIST_MESSAGE[items.length === 0 ? "all" : filter]}
-          </Text>
+          <EmptyState icon="📭" {...EMPTY_LIST_MESSAGE[items.length === 0 ? "all" : filter]} />
         ) : (
           <View style={styles.sectionList}>
             {sections.map((section) => (
@@ -106,7 +120,7 @@ function ItemSection({
   const open = expanded && section.items.length > 0;
 
   return (
-    <View style={styles.section}>
+    <View style={[styles.section, { borderLeftColor: section.color ?? colors.border }]}>
       <Pressable
         style={[styles.sectionHeader, !open && styles.sectionHeaderNoBorder]}
         onPress={() => setExpanded((v) => !v)}
@@ -114,9 +128,14 @@ function ItemSection({
       >
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionChevron}>{expanded ? "▼" : "▶"}</Text>
+          {section.color ? (
+            <View style={[styles.colorDot, { backgroundColor: section.color }]} />
+          ) : (
+            <Text style={styles.sectionChevron}>📍</Text>
+          )}
           <Text style={styles.sectionTitle}>{section.title}</Text>
         </View>
-        <Text style={styles.muted}>{section.items.length} 件</Text>
+        <Badge label={`${section.items.length} 件`} />
       </Pressable>
       {open &&
         section.items.map((item, idx) => (
@@ -142,6 +161,7 @@ function ItemRow({
   showExpiresAt: boolean;
 } & RowHandlers) {
   const avgAmount = averageAmount(item);
+  const status = stockStatus(item);
 
   return (
     <View style={styles.row}>
@@ -151,6 +171,7 @@ function ItemRow({
           <Pressable onPress={() => onAction("name", item)} hitSlop={8} accessibilityLabel="名前を編集">
             <Text style={styles.attrMuted}>✎</Text>
           </Pressable>
+          {status !== "ok" && <Badge tone={STATUS_TONE[status]} label={STOCK_STATUS_LABEL[status]} />}
         </View>
         <AttributeLine
           icon="▮▮▮"
@@ -193,13 +214,14 @@ function ItemRow({
       </View>
       <View style={styles.rowRight}>
         <IconButton
-          label="在庫減 (-1)"
+          label="払い出し (-1)"
           icon="−"
+          tone="decrement"
           onPress={() => onDecrement(item)}
           disabled={item.stock <= 0}
         />
         <Text style={[styles.stock, item.stock <= 0 && styles.stockEmpty]}>{item.stock}</Text>
-        <IconButton label="在庫増 (+1)" icon="＋" onPress={() => onIncrement(item)} />
+        <IconButton label="入庫 (+1)" icon="＋" tone="increment" onPress={() => onIncrement(item)} />
         <SmallButton label="履歴" onPress={() => onAction("history", item)} />
         <SmallButton label="削除" danger onPress={() => onAction("delete", item)} />
       </View>

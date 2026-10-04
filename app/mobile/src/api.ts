@@ -1,5 +1,7 @@
 // API クライアント。app/web/src/lib/api.ts とは「認証トークンの保持」部分以外を同一に保つこと。
 
+import { KEYS, getItem, setItem } from "./storage";
+
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -75,11 +77,6 @@ export type ItemHistory = {
   user?: { id: number; name: string } | null;
 };
 
-export type ScanResult =
-  | { action: "incremented"; item: Item }
-  | { action: "needs_amount"; item: Item }
-  | { action: "not_found"; barcode: string };
-
 export type Inventory = {
   items: Item[];
   categories: Category[];
@@ -107,7 +104,7 @@ export type AnalyticsTimeseries = {
   series: AnalyticsSeries[];
 };
 
-// --- 認証トークンの保持 (メモリ。アプリ再起動で再ログイン) -------------------
+// --- 認証トークンの保持 (SecureStore。起動時に restoreToken で読み込む) ------
 
 let authToken: string | null = null;
 
@@ -115,12 +112,25 @@ export function getToken(): string | null {
   return authToken;
 }
 
+// 保存済みトークンをメモリに読み込む (起動時に1回呼ぶ)
+export async function restoreToken(): Promise<string | null> {
+  authToken = await getItem(KEYS.token);
+  return authToken;
+}
+
+// 保存の失敗でログイン操作自体は失敗させない (次回起動時に再ログインになるだけ)
+function persistToken(token: string | null): void {
+  setItem(KEYS.token, token).catch(() => {});
+}
+
 function setToken(token: string): void {
   authToken = token;
+  persistToken(token);
 }
 
 function clearToken(): void {
   authToken = null;
+  persistToken(null);
 }
 
 // --- 以下 Web / モバイル共通 -------------------------------------------------
@@ -250,14 +260,6 @@ export const api = {
 
   createItem: (input: CreateItemInput) =>
     request<Item>("/api/items", withBody("POST", input)),
-
-  // 登録済みなら在庫 +1 (在庫0なら金額入力が必要なので加算しない)、未登録なら not_found
-  scanBarcode: async (barcode: string): Promise<ScanResult> => {
-    const res = await send("/api/items/scan", withBody("POST", { barcode }));
-    if (res.status === 404) return { action: "not_found", barcode };
-    if (!res.ok) throw await errorFrom(res);
-    return (await res.json()) as ScanResult;
-  },
 
   decrementItem: (id: number) =>
     request<Item>(`/api/items/${id}/decrement`, { method: "PUT" }),

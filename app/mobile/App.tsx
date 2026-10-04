@@ -1,14 +1,14 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Linking, Pressable, SafeAreaView, Text, View } from "react-native";
+import { ActivityIndicator, Alert, SafeAreaView, Text, View } from "react-native";
 import {
   api,
   apiBaseUrl,
+  restoreToken,
   setUnauthorizedHandler,
   type AnalyticsQuery,
   type Inventory,
   type Item,
-  type ScanResult,
   type User,
 } from "./src/api";
 import { AnalyticsPanel } from "./src/components/AnalyticsPanel";
@@ -26,8 +26,10 @@ import {
   BarcodeEditModal,
   HistoryModal,
   NameEditModal,
+  ScanActionModal,
   SelectModal,
 } from "./src/components/modals";
+import { ScanPanel } from "./src/components/ScanPanel";
 import { ScannerModal } from "./src/components/ScannerModal";
 import { IconButton, SmallButton, TabButton, confirmDelete } from "./src/components/ui";
 import {
@@ -41,9 +43,10 @@ import {
 } from "./src/inventory";
 import { styles } from "./src/styles";
 
-type Tab = "list" | "item" | "category" | "group" | "storage" | "analytics";
+type Tab = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics";
 
 const TABS: { value: Tab; label: string }[] = [
+  { value: "scan", label: "スキャン" },
   { value: "list", label: "在庫一覧" },
   { value: "item", label: "物品" },
   { value: "category", label: "カテゴリ" },
@@ -54,7 +57,7 @@ const TABS: { value: Tab; label: string }[] = [
 
 // 削除は確認アラートで行うためダイアログにはしない
 type Dialog =
-  | { kind: Exclude<ItemAction, "delete"> | "category" | "amount"; item: Item }
+  | { kind: Exclude<ItemAction, "delete"> | "category" | "amount" | "scanAction"; item: Item }
   // target 指定時はその品目へのバーコード設定、未指定なら在庫 +1 / 物品追加
   | { kind: "scanner"; target: Item | null };
 
@@ -65,15 +68,34 @@ const EMPTY_INVENTORY: Inventory = {
   itemGroups: [],
 };
 
-const ISSUE_URL = "https://github.com/makoto-kamimura/docker_inventory_management/issues/new";
-
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [checking, setChecking] = useState(true);
 
+  // 起動時: 保存したトークンでログイン中のユーザーを取り直す
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
+
+    (async () => {
+      try {
+        if (await restoreToken()) setUser(await api.me());
+      } catch {
+        // 通信できない場合もいったんログイン画面に戻す (トークンは 401 のときだけ消える)
+      } finally {
+        setChecking(false);
+      }
+    })();
+
     return () => setUnauthorizedHandler(null);
   }, []);
+
+  if (checking) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.loginWrap]}>
+        <ActivityIndicator />
+      </SafeAreaView>
+    );
+  }
 
   if (!user) {
     return <LoginScreen onLoggedIn={setUser} />;
@@ -83,7 +105,7 @@ export default function App() {
 }
 
 function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>("list");
+  const [tab, setTab] = useState<Tab>("scan");
   const [inventory, setInventory] = useState<Inventory>(EMPTY_INVENTORY);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -151,15 +173,15 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
     }
   };
 
-  // 在庫0からの補充は金額・期限の入力を挟む
-  const handleIncrement = (item: Item) => {
-    if (item.stock <= 0) setDialog({ kind: "amount", item });
-    else void perform("在庫増失敗", () => api.incrementItem(item.id));
+  // 在庫0からの補充は金額・期限の入力を挟む (その場合は false)
+  const handleIncrement = async (item: Item) => {
+    if (item.stock > 0) return perform("在庫増失敗", () => api.incrementItem(item.id));
+    setDialog({ kind: "amount", item });
+    return false;
   };
 
-  const handleDecrement = (item: Item) => {
-    void perform("払い出し失敗", () => api.decrementItem(item.id));
-  };
+  const handleDecrement = (item: Item) =>
+    perform("払い出し失敗", () => api.decrementItem(item.id));
 
   const handleAction = (action: ItemAction, item: Item) => {
     if (action === "delete") {
@@ -197,25 +219,37 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
       return;
     }
 
-    let result: ScanResult;
+    // 登録済みなら入庫/払い出しの選択へ、未登録なら物品追加へ進む
+    let latest: Inventory;
     try {
-      result = await api.scanBarcode(barcode);
+      latest = await api.loadInventory();
     } catch (e) {
       closeDialog();
       Alert.alert("スキャン失敗", errorMessage(e));
       return;
     }
-    if (result.action === "needs_amount") {
-      setDialog({ kind: "amount", item: result.item });
+    setInventory(latest);
+    const item = latest.items.find((i) => i.barcode === barcode);
+    if (item) {
+      setDialog({ kind: "scanAction", item });
       return;
     }
     closeDialog();
-    if (result.action === "incremented") {
-      await reload();
-      Alert.alert("在庫を +1 しました", `${result.item.name} (在庫: ${result.item.stock})`);
-    } else {
-      setDraft((d) => draftFromBarcode(result.barcode, d.categoryId));
-      setTab("item");
+    setDraft((d) => draftFromBarcode(barcode, d.categoryId));
+    setTab("item");
+  };
+
+  const handleScanIncrement = async (item: Item) => {
+    closeDialog();
+    if (await handleIncrement(item)) {
+      Alert.alert("在庫を +1 しました", `${item.name} (在庫: ${item.stock + 1})`);
+    }
+  };
+
+  const handleScanDecrement = async (item: Item) => {
+    closeDialog();
+    if (await handleDecrement(item)) {
+      Alert.alert("在庫を -1 しました", `${item.name} (在庫: ${item.stock - 1})`);
     }
   };
 
@@ -300,6 +334,15 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
             }}
           />
         );
+      case "scanAction":
+        return (
+          <ScanActionModal
+            item={item}
+            onClose={closeDialog}
+            onIncrement={() => void handleScanIncrement(item)}
+            onDecrement={() => void handleScanDecrement(item)}
+          />
+        );
       case "history":
         return <HistoryModal item={item} onClose={closeDialog} />;
     }
@@ -331,9 +374,6 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
         </View>
         <View style={styles.headerRow}>
           <Text style={styles.subtitle}>API: {apiBaseUrl}</Text>
-          <Pressable onPress={() => Linking.openURL(ISSUE_URL)} hitSlop={8}>
-            <Text style={styles.subtitle}>🐛 バグ報告</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -348,6 +388,10 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
         ))}
       </View>
 
+      {tab === "scan" && (
+        <ScanPanel onScan={() => setDialog({ kind: "scanner", target: null })} />
+      )}
+
       {tab === "list" && (
         <InventoryList
           items={items}
@@ -360,8 +404,8 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
           onChangeFilter={setListFilter}
           onChangeGroupBy={setGroupBy}
           onRefresh={onRefresh}
-          onIncrement={handleIncrement}
-          onDecrement={handleDecrement}
+          onIncrement={(item) => void handleIncrement(item)}
+          onDecrement={(item) => void handleDecrement(item)}
           onAction={handleAction}
         />
       )}

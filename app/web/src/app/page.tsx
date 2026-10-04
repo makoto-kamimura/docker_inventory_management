@@ -5,6 +5,7 @@ import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { InventoryList, type ItemAction } from "@/components/InventoryList";
 import { ItemForm } from "@/components/ItemForm";
 import { LoginScreen } from "@/components/LoginScreen";
+import { ScanPanel } from "@/components/ScanPanel";
 import {
   CategoryManager,
   GroupManager,
@@ -18,6 +19,7 @@ import {
   ConfirmDeleteModal,
   HistoryModal,
   NameEditModal,
+  ScanActionModal,
   SelectEditModal,
 } from "@/components/modals";
 import { Banner, TabButton, cls } from "@/components/ui";
@@ -28,7 +30,6 @@ import {
   type AnalyticsQuery,
   type Inventory,
   type Item,
-  type ScanResult,
   type User,
 } from "@/lib/api";
 import {
@@ -41,9 +42,10 @@ import {
   type ListFilter,
 } from "@/lib/inventory";
 
-type Tab = "list" | "item" | "category" | "group" | "storage" | "analytics";
+type Tab = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics";
 
 const TABS: { value: Tab; label: string }[] = [
+  { value: "scan", label: "スキャン" },
   { value: "list", label: "在庫一覧" },
   { value: "item", label: "物品追加" },
   { value: "category", label: "カテゴリ管理" },
@@ -52,7 +54,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "analytics", label: "分析" },
 ];
 
-type Dialog = { kind: ItemAction | "amount"; item: Item } | { kind: "scan" };
+type Dialog = { kind: ItemAction | "amount" | "scanAction"; item: Item } | { kind: "scan" };
 
 const EMPTY_INVENTORY: Inventory = {
   items: [],
@@ -60,8 +62,6 @@ const EMPTY_INVENTORY: Inventory = {
   storageLocations: [],
   itemGroups: [],
 };
-
-const ISSUE_URL = "https://github.com/makoto-kamimura/docker_inventory_management/issues/new";
 
 const CONTAINER = "mx-auto w-full max-w-5xl px-6 sm:px-10";
 
@@ -105,7 +105,7 @@ export default function Home() {
 }
 
 function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>("list");
+  const [tab, setTab] = useState<Tab>("scan");
   const [inventory, setInventory] = useState<Inventory>(EMPTY_INVENTORY);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ tone: "error" | "info"; text: string } | null>(null);
@@ -179,15 +179,14 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
     }
   };
 
-  // 在庫0からの補充は金額・期限の入力を挟む
-  const handleIncrement = (item: Item) => {
-    if (item.stock <= 0) setDialog({ kind: "amount", item });
-    else void perform(() => api.incrementItem(item.id));
+  // 在庫0からの補充は金額・期限の入力を挟む (その場合は false)
+  const handleIncrement = async (item: Item) => {
+    if (item.stock > 0) return perform(() => api.incrementItem(item.id));
+    setDialog({ kind: "amount", item });
+    return false;
   };
 
-  const handleDecrement = (item: Item) => {
-    void perform(() => api.decrementItem(item.id));
-  };
+  const handleDecrement = (item: Item) => perform(() => api.decrementItem(item.id));
 
   const handleAddItem = async () => {
     const input = draftToInput(draft);
@@ -198,29 +197,38 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
     }
   };
 
+  // 登録済みなら入庫/払い出しの選択へ、未登録なら物品追加へ進む
   const handleScan = async (barcode: string) => {
-    let result: ScanResult;
+    let latest: Inventory;
     try {
-      result = await api.scanBarcode(barcode);
+      latest = await api.loadInventory();
     } catch (e) {
       closeDialog();
       showError(e);
       return;
     }
-    if (result.action === "needs_amount") {
-      setDialog({ kind: "amount", item: result.item });
+    setInventory(latest);
+    const item = latest.items.find((i) => i.barcode === barcode);
+    if (item) {
+      setDialog({ kind: "scanAction", item });
       return;
     }
     closeDialog();
-    if (result.action === "incremented") {
-      await reload();
-      setBanner({
-        tone: "info",
-        text: `${result.item.name} の在庫を +1 しました (在庫: ${result.item.stock})`,
-      });
-    } else {
-      setDraft((d) => draftFromBarcode(result.barcode, d.categoryId));
-      setTab("item");
+    setDraft((d) => draftFromBarcode(barcode, d.categoryId));
+    setTab("item");
+  };
+
+  const handleScanIncrement = async (item: Item) => {
+    closeDialog();
+    if (await handleIncrement(item)) {
+      setBanner({ tone: "info", text: `${item.name} の在庫を +1 しました (在庫: ${item.stock + 1})` });
+    }
+  };
+
+  const handleScanDecrement = async (item: Item) => {
+    closeDialog();
+    if (await handleDecrement(item)) {
+      setBanner({ tone: "info", text: `${item.name} の在庫を -1 しました (在庫: ${item.stock - 1})` });
     }
   };
 
@@ -289,6 +297,15 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
             }}
           />
         );
+      case "scanAction":
+        return (
+          <ScanActionModal
+            item={item}
+            onClose={closeDialog}
+            onIncrement={() => void handleScanIncrement(item)}
+            onDecrement={() => void handleScanDecrement(item)}
+          />
+        );
       case "history":
         return <HistoryModal item={item} onClose={closeDialog} />;
       case "delete":
@@ -324,14 +341,6 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
             <span aria-hidden>⌖</span> スキャン
           </button>
           <span className="text-zinc-500">{user.name}</span>
-          <a
-            href={ISSUE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-          >
-            🐛 バグ報告
-          </a>
           <button type="button" onClick={handleLogout} className={cls.outlineButton}>
             ログアウト
           </button>
@@ -352,6 +361,8 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
         </Banner>
       )}
 
+      {tab === "scan" && <ScanPanel onScan={() => setDialog({ kind: "scan" })} />}
+
       {tab === "list" && (
         <InventoryList
           items={items}
@@ -363,8 +374,8 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
           onChangeFilter={setListFilter}
           onChangeGroupBy={setGroupBy}
           onReload={reload}
-          onIncrement={handleIncrement}
-          onDecrement={handleDecrement}
+          onIncrement={(item) => void handleIncrement(item)}
+          onDecrement={(item) => void handleDecrement(item)}
           onAction={(kind, item) => setDialog({ kind, item })}
         />
       )}

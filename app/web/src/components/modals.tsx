@@ -328,7 +328,7 @@ export function BarcodeScanModal({
         className="space-y-4"
       >
         <p className="text-sm text-zinc-500">
-          バーコードを入力するか、バーコードリーダーで読み取ってください。登録済みなら在庫を +1、未登録なら物品追加に進みます。
+          バーコードを入力するか、バーコードリーダーで読み取ってください。登録済みなら入庫・払い出しを選択、未登録なら物品追加に進みます。
         </p>
         <input
           type="text"
@@ -348,6 +348,63 @@ export function BarcodeScanModal({
           </button>
         </ModalActions>
       </form>
+    </Modal>
+  );
+}
+
+/** スキャンした品目が登録済みのとき、入庫 (+1) か払い出し (-1) かを選ぶ */
+export function ScanActionModal({
+  item,
+  onClose,
+  onIncrement,
+  onDecrement,
+}: {
+  item: Item;
+  onClose: () => void;
+  onIncrement: () => void;
+  onDecrement: () => void;
+}) {
+  return (
+    <Modal title="入庫 / 払い出し" onClose={onClose}>
+      <div className="space-y-1">
+        <p className="font-medium break-words">{item.name}</p>
+        {item.barcode && (
+          <p className="font-mono text-xs tabular-nums text-zinc-500">{item.barcode}</p>
+        )}
+        <p className="text-sm text-zinc-500">
+          現在の在庫{" "}
+          <span
+            className={
+              "tabular-nums " + (item.stock <= 0 ? "text-red-600" : "text-zinc-900 dark:text-zinc-100")
+            }
+          >
+            {item.stock}
+          </span>
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={onIncrement}
+          autoFocus
+          className="rounded-lg bg-zinc-900 py-4 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          ＋ 入庫 (+1)
+        </button>
+        <button
+          type="button"
+          onClick={onDecrement}
+          disabled={item.stock <= 0}
+          className="rounded-lg border border-zinc-300 py-4 text-base font-semibold hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        >
+          − 払い出し (-1)
+        </button>
+      </div>
+      <ModalActions>
+        <button type="button" onClick={onClose} className={cls.secondaryButton}>
+          キャンセル
+        </button>
+      </ModalActions>
     </Modal>
   );
 }

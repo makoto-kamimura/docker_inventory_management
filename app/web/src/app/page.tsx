@@ -332,14 +332,6 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
           )}
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <button
-            type="button"
-            onClick={() => setDialog({ kind: "scan" })}
-            title="バーコードをスキャン"
-            className={cls.outlineButton}
-          >
-            <span aria-hidden>⌖</span> スキャン
-          </button>
           <span className="text-zinc-500">{user.name}</span>
           <button type="button" onClick={handleLogout} className={cls.outlineButton}>
             ログアウト

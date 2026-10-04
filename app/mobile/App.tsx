@@ -31,7 +31,7 @@ import {
 } from "./src/components/modals";
 import { ScanPanel } from "./src/components/ScanPanel";
 import { ScannerModal } from "./src/components/ScannerModal";
-import { IconButton, SmallButton, TabButton, confirmDelete } from "./src/components/ui";
+import { SmallButton, TabButton, confirmDelete } from "./src/components/ui";
 import {
   draftFromBarcode,
   draftToInput,
@@ -363,11 +363,6 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
             )}
           </View>
           <View style={styles.headerUser}>
-            <IconButton
-              label="バーコードスキャン"
-              icon="⌖"
-              onPress={() => setDialog({ kind: "scanner", target: null })}
-            />
             <Text style={styles.subtitle}>{user.name}</Text>
             <SmallButton label="ログアウト" onPress={() => void handleLogout()} />
           </View>

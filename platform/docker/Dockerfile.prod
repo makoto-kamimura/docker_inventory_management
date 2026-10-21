@@ -1,6 +1,6 @@
 # Laravel API (PHP-FPM) — production image
 # ビルドコンテキストはリポジトリルート (`docker-compose.prod.yml` の build.context: ..)
-FROM php:8.2-fpm-alpine
+FROM php:8.2.35-fpm-alpine
 
 # PHP 拡張に必要なシステムパッケージ
 RUN apk add --no-cache --virtual .build-deps \

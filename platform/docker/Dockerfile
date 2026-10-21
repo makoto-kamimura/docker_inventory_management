@@ -5,7 +5,7 @@
 # このイメージは PHP 実行環境と Composer のみを提供する。
 #
 # ビルドコンテキスト: platform/docker/
-FROM php:8.2-cli-alpine
+FROM php:8.2.35-cli-alpine
 
 # PHP 拡張に必要なシステムパッケージ
 RUN apk add --no-cache \

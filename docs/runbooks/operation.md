@@ -7,7 +7,7 @@
 | ツール          | 推奨バージョン            | 用途                          |
 | --------------- | ------------------------- | ----------------------------- |
 | Docker Desktop  | 4.x 以降 (`docker compose` v2 が使えること) | API / MySQL / phpMyAdmin 起動 |
-| Node.js         | 20.19.4 以降 (Expo 57 の要件)  | Web (Next.js 16) / Mobile (Expo 57) |
+| Node.js         | 22.13 以降 (Expo 58 の要件)    | Web (Next.js 16) / Mobile (Expo 58) |
 | npm             | 10 以降                   | パッケージ管理                |
 | (任意) Expo CLI | `npx expo` で都度実行可   | モバイル開発                  |
 | (任意) PHP 8.2  | コンテナ外から artisan を直接叩く場合のみ |              |
@@ -387,7 +387,7 @@ OS 設定からのみ変更可能 (アプリ内では再度ダイアログを出
 
 `npx tsc --noEmit` がエラーなしで通ります。Expo 54 / RN 0.81 のときに出ていた RN クラスコンポーネント (`View` / `Text` 等) の `TS2786 / TS2607` は Expo 57 (RN 0.86) で解消したため、`App.tsx` の `@ts-nocheck` は削除済みです。
 
-> Expo 57 の最新仕様は https://docs.expo.dev/versions/v57.0.0/ を確認 (`app/mobile/AGENTS.md`)。
+> Expo 58 の最新仕様は https://docs.expo.dev/versions/v58.0.0/ を確認 (`app/mobile/AGENTS.md`)。
 
 ### 5.5 本番ビルド (EAS Build) — `npx expo start` 無しで使う
 

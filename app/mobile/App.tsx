@@ -14,6 +14,7 @@ import {
 import { AnalyticsPanel } from "./src/components/AnalyticsPanel";
 import { InventoryList, type ItemAction } from "./src/components/InventoryList";
 import { ItemForm } from "./src/components/ItemForm";
+import { AccountPanel } from "./src/components/AccountPanel";
 import { LoginScreen } from "./src/components/LoginScreen";
 import {
   CategoryManager,
@@ -54,6 +55,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "group", label: "グループ" },
   { value: "storage", label: "保管場所" },
   { value: "analytics", label: "分析" },
+  { value: "account", label: "アカウント" },
 ];
 
 // 削除は確認アラートで行うためダイアログにはしない
@@ -443,6 +445,8 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
           onError={(message) => Alert.alert("分析データ取得失敗", message)}
         />
       )}
+
+      {tab === "account" && <AccountPanel user={user} />}
 
       {dialog && renderDialog(dialog)}
     </SafeAreaView>

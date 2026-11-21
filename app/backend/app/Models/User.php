@@ -52,6 +52,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'sso_only' => 'boolean',
         ];
     }
 
@@ -62,14 +63,16 @@ class User extends Authenticatable
 
     /**
      * 新しい API トークンを発行し、平文を返す (平文は DB に保存しない)。
+     * $loginMethod はログインした方法 (pwd / sso)。「SSO だけ」の判定に使う。
      */
-    public function issueApiToken(?string $name = null): string
+    public function issueApiToken(?string $name = null, string $loginMethod = 'pwd'): string
     {
         $plain = Str::random(64);
 
         $this->apiTokens()->create([
             'name' => $name,
             'token' => ApiToken::hash($plain),
+            'login_method' => $loginMethod === 'sso' ? 'sso' : 'pwd',
         ]);
 
         return $plain;

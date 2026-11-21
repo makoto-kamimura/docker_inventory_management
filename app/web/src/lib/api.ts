@@ -3,6 +3,9 @@
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+/** API のベース URL (SSO の開始 URL を組むのに使う) */
+export const API_BASE_URL = BASE_URL;
+
 export type User = {
   id: number;
   name: string;
@@ -102,6 +105,15 @@ export type AnalyticsTimeseries = {
   series: AnalyticsSeries[];
 };
 
+export type SsoIdentities = {
+  sso_enabled: boolean;
+  sso_name: string | null;
+  can_link: boolean;
+  identities: { provider: string; email: string | null; created_at: string; last_login_at: string | null }[];
+  sso_only: boolean;
+  login_method: "pwd" | "sso";
+};
+
 // --- 認証トークンの保持 (localStorage) -------------------------------------
 
 const TOKEN_KEY = "inventory_auth_token";
@@ -111,7 +123,7 @@ export function getToken(): string | null {
   return window.localStorage.getItem(TOKEN_KEY);
 }
 
-function setToken(token: string): void {
+export function setToken(token: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(TOKEN_KEY, token);
 }
@@ -192,6 +204,20 @@ export const api = {
   },
 
   me: () => request<User>("/api/me"),
+
+  // --- SSO (共通の認証サーバー) ---
+  ssoProviders: async (): Promise<{ sso: boolean; sso_name: string | null }> => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/providers`, { headers: { Accept: "application/json" } });
+      return res.ok ? await res.json() : { sso: false, sso_name: null };
+    } catch {
+      return { sso: false, sso_name: null };
+    }
+  },
+  ssoIdentities: () => request<SsoIdentities>("/api/me/identities"),
+  ssoIntent: () => request<{ intent: string }>("/api/me/identities/sso/intent", withBody("POST", {})),
+  ssoUnlink: () => request<{ unlinked: boolean }>("/api/me/identities/sso", { method: "DELETE" }),
+  ssoSetOnly: (enabled: boolean) => request<{ sso_only: boolean }>("/api/me/sso-only", withBody("PUT", { enabled })),
 
   logout: async (): Promise<void> => {
     try {

@@ -10,8 +10,10 @@ import {
   PackagePlus,
   ScanLine,
   Tags,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
+import { AccountPanel } from "@/components/AccountPanel";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { InventoryList, type ItemAction } from "@/components/InventoryList";
 import { ItemForm } from "@/components/ItemForm";
@@ -34,6 +36,7 @@ import {
   SelectEditModal,
 } from "@/components/modals";
 import { Banner, LogoMark, PageIntro, TabButton, cls } from "@/components/ui";
+import { ssoErrorMessage } from "@/lib/sso";
 import {
   api,
   getToken,
@@ -65,6 +68,7 @@ const TABS: { value: Tab; label: string; icon: LucideIcon }[] = [
   { value: "group", label: "グループ", icon: Layers },
   { value: "storage", label: "保管場所", icon: MapPin },
   { value: "analytics", label: "分析", icon: ChartLine },
+  { value: "account", label: "アカウント", icon: UserRound },
 ];
 
 type Dialog = { kind: ItemAction | "amount" | "scanAction"; item: Item } | { kind: "scan" };
@@ -118,7 +122,15 @@ export default function Home() {
 }
 
 function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>("scan");
+  // SSO の連携から戻ってきたとき (?tab=account&sso=linked / &sso_error=...) はアカウントを開く
+  const [ssoReturn] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("tab") !== "account") return null;
+    window.history.replaceState(null, "", window.location.pathname);
+    return { linked: q.get("sso") === "linked", error: ssoErrorMessage(q.get("sso_error"), "link") };
+  });
+  const [tab, setTab] = useState<Tab>(ssoReturn ? "account" : "scan");
   const [inventory, setInventory] = useState<Inventory>(EMPTY_INVENTORY);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ tone: "error" | "info"; text: string } | null>(null);
@@ -430,6 +442,10 @@ function InventoryApp({ user, onLogout }: { user: User; onLogout: () => void }) 
           onChangeQuery={setAnalyticsQuery}
           onError={(message) => setBanner({ tone: "error", text: message })}
         />
+      )}
+
+      {tab === "account" && (
+        <AccountPanel user={user} linked={ssoReturn?.linked ?? false} initialError={ssoReturn?.error ?? null} />
       )}
 
       {dialog && renderDialog(dialog)}

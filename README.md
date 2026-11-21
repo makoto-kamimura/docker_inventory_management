@@ -249,8 +249,8 @@ Alexa   : 「マウスを1個払い出しました。残り4個です。他に�
 
 | レイヤ | 技術 | 備考 |
 |---|---|---|
-| API（開発） | PHP 8.2 / Laravel 12 / Eloquent / `php artisan serve` | ソースを bind mount し即時反映 |
-| API（本番） | PHP 8.2 FPM（`php:8.2-fpm-alpine`）+ Composer `--no-dev` | `migrate --force` と `config:cache` を entrypoint で実行 |
+| API（開発） | PHP 8.4 / Laravel 12 / Eloquent / `php artisan serve` | ソースを bind mount し即時反映 |
+| API（本番） | PHP 8.4 FPM（`php:8.4-fpm-alpine`）+ Composer `--no-dev` | `migrate --force` と `config:cache` を entrypoint で実行 |
 | Web | Next.js 16（App Router）/ React 19 / Tailwind v4 / TypeScript | Docker（node:22-alpine）で起動。破壊的変更を含むため `app/web/AGENTS.md` に従う |
 | モバイル | Expo 58 / React Native 0.88 / TypeScript / expo-camera | ホスト側で起動。`app/mobile/AGENTS.md` に従う |
 | Alexa | `ask-sdk-core` / `axios`（方式 B は `ask-sdk-express-adapter` / `express` を追加） | |
@@ -290,14 +290,14 @@ Alexa   : 「マウスを1個払い出しました。残り4個です。他に�
 ```
 docker_inventory_management/
 ├── app/
-│   ├── backend/   Laravel 12 / PHP 8.2 (REST API)
+│   ├── backend/   Laravel 12 / PHP 8.4 (REST API)
 │   ├── web/       Next.js 16 / React 19 (Tailwind v4)
 │   │   └── src/   app/page.tsx (画面の状態管理) / components/ / lib/ (api.ts, inventory.ts)
 │   ├── mobile/    Expo 58 / React Native 0.88 (TypeScript)
 │   │   └── src/   components/ / api.ts / inventory.ts / styles.ts
 │   └── alexa/     Alexa カスタムスキル (Lambda ハンドラー・インタラクションモデル)
 ├── platform/
-│   ├── docker/                  Dockerfile (php:8.2-fpm)
+│   ├── docker/                  Dockerfile (php:8.4-fpm)
 │   ├── docker-compose.yml       app / db / phpmyadmin / alexa-server / web
 │   ├── docker-compose.prod.yml  本番構成 (Caddy リバースプロキシ)
 │   ├── proxy/                   Caddyfile

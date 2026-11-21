@@ -336,6 +336,9 @@ docker_inventory_management/
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | ブラウザから API を呼ぶ URL。本番は空（同一オリジン） |
 | `EXPO_PUBLIC_API_BASE_URL` | `http://localhost:8000` | 端末から API を呼ぶ URL。実機では PC の LAN IP |
 | `API_BASE_URL` / `API_TOKEN` | — | Alexa スキルの API 接続先とトークン |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 空（SSO は無効） | SSO の認証サーバーとクライアント（[10章](#10-認証の実装)） |
+| `PUBLIC_BASE_URL` | — | アプリの公開 URL。認証サーバーに登録するリダイレクト URI は `{PUBLIC_BASE_URL}/api/auth/sso/callback` |
+| `OIDC_REQUIRE_MFA` / `OIDC_DISPLAY_NAME` / `OIDC_MOBILE_REDIRECT_PREFIXES` / `OIDC_LINK_DENY_EMAIL_DOMAINS` / `OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY` | `true` / `SSO` / `inventory://,exp://` / `example.com` / `false` | SSO の細かい設定。`php artisan serve` の子プロセスは環境変数を引き継がないので、`wait-for-db.sh` が `.env` に書き写す |
 
 ### 9.6 クイックスタート
 
@@ -397,6 +400,12 @@ npx expo start
 - `AuthenticateToken` ミドルウェア（`auth.token` エイリアス）が `Authorization: Bearer <token>` を検証する。無い / 無効なら `401 {"message":"Unauthenticated."}`。
 - Sanctum は使わず、依存を追加しない軽量実装とする（[D1](#16-決定事項)）。
 - `POST /api/logout` で現在のトークンを失効させる。トークンに有効期限はない（[Q2](#17-未決事項)）。
+- **SSO でログイン**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET` がそろったときだけ有効）: 共通の認証サーバー（OpenID Connect）でログインする。仕様は、認証サーバーのリポジトリ（docker_auth_server）の `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。
+  - パスワードでログインしたあと、「アカウント」タブで自分の SSO のアカウントを連携した人だけが使える。新規登録はしない。メールアドレスの一致では自動でひも付けない。デモ用（`@example.com`）には連携できない。
+  - 既定では、認証サーバーにパスキー（2 段階認証）でログインした人だけを通す（ID トークンの `amr` に `mfa`、`OIDC_REQUIRE_MFA`）。
+  - ID トークンは、認証サーバーの公開鍵（`/.well-known/openid-configuration` の `jwks_uri`）で署名を確かめ、`iss`・`aud`・`exp`・`nonce` も確かめる（`firebase/php-jwt`、`App\Services\Sso\Oidc`）。
+  - PKCE を二重に使う（クライアント ↔ API と、API ↔ 認証サーバー）。`state`・`intent`・結果コードは DB にハッシュだけを保存し、1 回で消す。Web はブラウザの `sessionStorage`、モバイルはメモリに `code_verifier` を持つ。
+  - **SSO だけでログインする**（本人が「アカウント」で選ぶ）: オンにすると、パスワードでのログインを 403 で断り、パスワードで発行したトークン（`api_tokens.login_method = pwd`）はほかの端末のものも含めて 401 になる。オンにできるのは、連携済みで SSO でログイン中の人だけ。連携を解除すると外れる。非常用に `OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY=true`。
 - テナント分離は `App\Models\Concerns\BelongsToTenant` トレイトで行う。認証中ユーザーの `tenant_id` でグローバルスコープを掛け、作成時は `tenant_id` を自動で埋める。未認証のコンテキスト（artisan / seeder）では絞り込まない。存在チェック・一意制約のバリデーションもテナント内で判定する。
 
 ## 11. 機能ごとの実装方針
@@ -466,8 +475,10 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | テーブル | 主なカラム |
 |---|---|
 | `tenants` | `id`, `name`（unique）。`demo` / `main` をマイグレーションで作成（[D4](#16-決定事項)） |
-| `users` | Laravel 標準 + `tenant_id` |
-| `api_tokens` | `id`, `user_id`（FK → users, cascade）, `name`（nullable）, `token`（SHA-256 ハッシュ, unique）, `last_used_at` |
+| `users` | Laravel 標準 + `tenant_id` + `sso_only`（SSO だけでログインする） |
+| `api_tokens` | `id`, `user_id`（FK → users, cascade）, `name`（nullable）, `token`（SHA-256 ハッシュ, unique）, `last_used_at`, `login_method`（`pwd` / `sso`） |
+| `user_identities` | SSO の連携。`user_id`, `provider`（sso）, `subject`（認証サーバーの `sub`）, `email`（表示用）, `last_login_at`。`(provider, subject)` と `(user_id, provider)` が unique |
+| `oauth_flows` | SSO の途中の状態。`mode`, `intent_hash` / `state_hash` / `result_hash`（どれもハッシュ）, `client_challenge`, `return_to`, `expires_at`。使ったら消す |
 | `categories` | `id`, `tenant_id`, `name`（`tenant_id` と複合 unique） |
 | `item_groups` | `id`, `tenant_id`, `name`（`tenant_id` と複合 unique） |
 | `storage_locations` | `id`, `tenant_id`, `category_id`（nullable。旧仕様の名残で制約なし）, `description`（自由記述） |
@@ -480,7 +491,7 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 
 ## 13. API
 
-ルートは `app/backend/routes/api.php`（`bootstrap/app.php` の `withRouting(api: ...)` で `/api` プレフィックス）。**`POST /api/login` 以外はすべてトークン認証が必須**で、対象はログインユーザーのテナントのデータに限られる。
+ルートは `app/backend/routes/api.php`（`bootstrap/app.php` の `withRouting(api: ...)` で `/api` プレフィックス）。**`POST /api/login` と SSO の公開の経路（`/api/auth/providers`・`/api/auth/sso/*`）以外はすべてトークン認証が必須**で、対象はログインユーザーのテナントのデータに限られる。
 
 | Method | Path | 説明 | 主なステータス |
 |---|---|---|---|
@@ -507,6 +518,14 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | GET | `/api/items/{item}/histories` | 履歴（新しい順、`user:id,name` 同梱） | 200 / 404 |
 | GET | `/api/analytics/timeseries` | 時系列の集計（[11.5節](#115-分析の集計)） | 200 |
 | GET | `/up` | Laravel 標準のヘルスチェック（認証不要） | 200 |
+| GET | `/api/auth/providers` | SSO が使えるか（`{sso, sso_name}`。公開） | 200 |
+| GET | `/api/auth/sso/start` | SSO の開始（`mode`・`client`・`code_challenge`・モバイルは `redirect_uri`・連携は `intent`）。認証サーバーへ 303（公開） | 303 / 400 / 404 |
+| GET | `/api/auth/sso/callback` | 認証サーバーからの戻り。`?code=` か `?error=`（not_linked / mfa_required / cancelled / expired / failed）でクライアントへ 303（公開） | 303 / 400 |
+| POST | `/api/auth/sso/exchange` | 結果コードと `code_verifier` の交換。ログインならトークン、連携なら（Bearer の本人を確かめて）登録 | 200 / 400 / 401 / 403 / 409 |
+| GET | `/api/me/identities` | 自分の連携と「SSO だけ」の状態 | 200 |
+| POST | `/api/me/identities/sso/intent` | 連携の開始に使う使い捨ての intent | 200 / 400 |
+| DELETE | `/api/me/identities/sso` | 連携の解除（「SSO だけ」も外す） | 200 |
+| PUT | `/api/me/sso-only` | 「SSO だけでログインする」の切り替え | 200 / 400 |
 
 ## 14. 非機能要件
 

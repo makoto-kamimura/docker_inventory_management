@@ -22,7 +22,10 @@ fi
 # 環境変数が .env のデフォルト値と異なる場合は .env を上書きする。
 # php artisan serve が起動する子プロセス (php -S) は親の環境変数を引き継がないため、
 # .env に正しい値を書き込んでおく必要がある。
-for _VAR in DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD APP_KEY APP_URL APP_ENV APP_DEBUG; do
+# SSO (OIDC_*・PUBLIC_BASE_URL) も同じ理由で書き写す
+for _VAR in DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD APP_KEY APP_URL APP_ENV APP_DEBUG \
+    OIDC_ISSUER OIDC_CLIENT_ID OIDC_CLIENT_SECRET PUBLIC_BASE_URL OIDC_REQUIRE_MFA OIDC_DISPLAY_NAME OIDC_SCOPE \
+    OIDC_MOBILE_REDIRECT_PREFIXES OIDC_LINK_DENY_EMAIL_DOMAINS OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY; do
   _VAL="$(eval echo \"\${${_VAR}+x}\")"
   if [ -n "${_VAL}" ]; then
     _ACTUAL="$(eval echo \"\$${_VAR}\")"

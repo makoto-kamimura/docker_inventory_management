@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\AuthenticateToken;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -24,17 +25,30 @@ class AuthController extends Controller
             ]);
         }
 
-        $token = $user->issueApiToken('api');
+        // 「SSO だけ」にした人は、パスワードが正しくても SSO へ案内する
+        // (パスワードを確かめたあとに判定するので、パスワードを知らない人には設定が分からない)
+        if (! AuthenticateToken::loginMethodAllowed($user, 'pwd')) {
+            return response()->json([
+                'message' => 'このアカウントは SSO でのみログインできます。「SSO でログイン」を使ってください',
+            ], 403);
+        }
+
+        $token = $user->issueApiToken('api', 'pwd');
 
         return response()->json([
             'token' => $token,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'tenant' => $user->tenant->name,
-            ],
+            'user' => self::userPayload($user),
         ]);
+    }
+
+    public static function userPayload(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'tenant' => $user->tenant->name,
+        ];
     }
 
     public function me(Request $request)

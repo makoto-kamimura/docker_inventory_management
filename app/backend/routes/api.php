@@ -5,16 +5,28 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\ItemGroupController;
+use App\Http\Controllers\SsoController;
 use App\Http\Controllers\StorageLocationController;
 use Illuminate\Support\Facades\Route;
 
 // 認証不要 (ログインのみ公開)
 Route::post('/login', [AuthController::class, 'login']);
 
+// SSO (OpenID Connect)。OIDC_ISSUER などが未設定なら 404 (providers は sso: false)
+Route::get('/auth/providers', [SsoController::class, 'providers']);
+Route::get('/auth/sso/start', [SsoController::class, 'start']);
+Route::get('/auth/sso/callback', [SsoController::class, 'callback']);
+Route::post('/auth/sso/exchange', [SsoController::class, 'exchange']);
+
 // ここから先はすべてトークン認証必須
 Route::middleware('auth.token')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::get('/me/identities', [SsoController::class, 'identities']);
+    Route::post('/me/identities/sso/intent', [SsoController::class, 'intent']);
+    Route::delete('/me/identities/sso', [SsoController::class, 'unlink']);
+    Route::put('/me/sso-only', [SsoController::class, 'setSsoOnly']);
 
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::post('/categories', [CategoryController::class, 'store']);

@@ -136,6 +136,7 @@ export const SCREEN_ICON: Record<Screen, string> = {
   group: "🗂️",
   storage: "📍",
   analytics: "📊",
+  account: "👤",
 };
 
 /** 画面の見出しと説明文 */

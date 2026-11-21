@@ -104,6 +104,15 @@ export type AnalyticsTimeseries = {
   series: AnalyticsSeries[];
 };
 
+export type SsoIdentities = {
+  sso_enabled: boolean;
+  sso_name: string | null;
+  can_link: boolean;
+  identities: { provider: string; email: string | null; created_at: string; last_login_at: string | null }[];
+  sso_only: boolean;
+  login_method: "pwd" | "sso";
+};
+
 // --- 認証トークンの保持 (SecureStore。起動時に restoreToken で読み込む) ------
 
 let authToken: string | null = null;
@@ -123,7 +132,7 @@ function persistToken(token: string | null): void {
   setItem(KEYS.token, token).catch(() => {});
 }
 
-function setToken(token: string): void {
+export function setToken(token: string): void {
   authToken = token;
   persistToken(token);
 }
@@ -204,6 +213,20 @@ export const api = {
   },
 
   me: () => request<User>("/api/me"),
+
+  // --- SSO (共通の認証サーバー) ---
+  ssoProviders: async (): Promise<{ sso: boolean; sso_name: string | null }> => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/providers`, { headers: { Accept: "application/json" } });
+      return res.ok ? await res.json() : { sso: false, sso_name: null };
+    } catch {
+      return { sso: false, sso_name: null };
+    }
+  },
+  ssoIdentities: () => request<SsoIdentities>("/api/me/identities"),
+  ssoIntent: () => request<{ intent: string }>("/api/me/identities/sso/intent", withBody("POST", {})),
+  ssoUnlink: () => request<{ unlinked: boolean }>("/api/me/identities/sso", { method: "DELETE" }),
+  ssoSetOnly: (enabled: boolean) => request<{ sso_only: boolean }>("/api/me/sso-only", withBody("PUT", { enabled })),
 
   logout: async (): Promise<void> => {
     try {

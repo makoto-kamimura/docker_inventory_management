@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -122,7 +123,7 @@ const BADGE_STYLE = {
 export function LogoMark({ large = false }: { large?: boolean }) {
   return (
     <View style={[styles.logo, large && styles.logoLarge]}>
-      <Text style={[styles.logoText, large && styles.logoTextLarge]}>📦</Text>
+      <Image source={require("../../assets/logo.png")} style={{ width: "100%", height: "100%" }} />
     </View>
   );
 }

@@ -14,7 +14,7 @@
       "package": "com.example.inventory",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0d9488"
       },
       "predictiveBackGestureEnabled": false
     },

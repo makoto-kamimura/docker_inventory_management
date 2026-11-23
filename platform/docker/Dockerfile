@@ -2,22 +2,19 @@
 #
 # docker-compose.demo.yml から参照される。
 # アプリのソースコードは compose 側の volumes で bind mount するため、
-# このイメージは PHP 実行環境と Composer のみを提供する。
+# このイメージは PHP の実行環境（FrankenPHP）と Composer だけを提供する。
+# 配信は wait-for-db.sh の最後で FrankenPHP（php-server）を起動して行う。
 #
 # ビルドコンテキスト: platform/docker/
-FROM php:8.4-cli-alpine
+FROM dunglas/frankenphp:1.14.0-php8.4.28-alpine
 
-# PHP 拡張に必要なシステムパッケージ
+# PHP 拡張（mbstring・xml は土台のイメージに入っている）
 RUN apk add --no-cache \
         git \
         unzip \
-        oniguruma-dev \
-        libxml2-dev \
         netcat-openbsd \
-    && docker-php-ext-install \
+    && install-php-extensions \
         pdo_mysql \
-        mbstring \
-        xml \
         bcmath
 
 # Composer

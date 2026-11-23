@@ -20,8 +20,7 @@ if ! grep -q "^APP_KEY=base64:" /var/www/.env 2>/dev/null; then
 fi
 
 # 環境変数が .env のデフォルト値と異なる場合は .env を上書きする。
-# php artisan serve が起動する子プロセス (php -S) は親の環境変数を引き継がないため、
-# .env に正しい値を書き込んでおく必要がある。
+# 配信 (FrankenPHP) と artisan のコマンドが、同じ値を見るようにするため。
 # SSO (OIDC_*・PUBLIC_BASE_URL) も同じ理由で書き写す
 for _VAR in DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD APP_KEY APP_URL APP_ENV APP_DEBUG \
     OIDC_ISSUER OIDC_CLIENT_ID OIDC_CLIENT_SECRET PUBLIC_BASE_URL OIDC_REQUIRE_MFA OIDC_DISPLAY_NAME OIDC_SCOPE \
@@ -62,5 +61,6 @@ case "$MODE" in
     ;;
 esac
 
-# 開発サーバ起動
-exec php artisan serve --host=0.0.0.0 --port=8000
+# FrankenPHP で配信する（ワーカーではない通常のモード。リクエストごとに PHP を読み直す）。
+# :8000 の HTTP だけを待ち受け、HTTPS の自動設定はしない（TLS は前段のプロキシが終端する）
+exec frankenphp php-server --listen :8000 --root public/

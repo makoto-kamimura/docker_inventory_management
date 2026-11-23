@@ -88,20 +88,23 @@ docker compose --profile alexa run --rm alexa-build
 
 ## 方式 B: 自サーバー (alexa_server コンテナ) セットアップ
 
-### B-1. `platform/.env` に API トークンを設定
+### B-1. `platform/.env` に API トークンとスキル ID を設定
 
 ```bash
 # platform/.env
 API_BASE_URL=http://demo-inventory-api:8000
 API_TOKEN=<前述で取得したトークン>
+ALEXA_SKILL_ID=<Alexa Developer Console のスキル ID (amzn1.ask.skill.…)>
 ```
+
+`ALEXA_SKILL_ID` が空だと、`alexa-server` はすべての要求を 503 で断る（ほかの人のスキルからの要求を受けないため）。
 
 ### B-2. alexa_server コンテナを起動
 
 ```bash
 cd platform
 docker compose up -d alexa-server
-docker compose logs alexa-server   # "Alexa skill server running on port 3002" を確認
+docker compose logs alexa-server   # "Alexa skill server running on port 3002" と "Skill ID verification: enabled" を確認
 ```
 
 ### B-3. Nginx の `/alexa` ルーティングを確認
@@ -179,6 +182,7 @@ Alexa シミュレーター (または実機) で `ストクルを開いて` →
 | 「在庫システムに接続できませんでした」 | `API_BASE_URL=http://demo-inventory-api:8000` を確認。`docker logs alexa_server` で `getItems error:` を確認 |
 | 「スキルが応答できませんでした」 | Alexa Developer Console のエンドポイントが Lambda ARN のまま → HTTPS URL に変更 |
 | 401 エラー | `API_TOKEN` が誤り。`platform/.env` を確認後 `docker compose restart alexa-server` |
+| どの発話にも応答しない・ログに `Skill ID verification failed` / `ALEXA_SKILL_ID is not set` | `ALEXA_SKILL_ID` が未設定か、スキルの ID と違う。`platform/.env` を直し、`docker compose up -d alexa-server` で作り直す |
 
 ### 共通
 

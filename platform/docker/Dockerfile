@@ -21,3 +21,7 @@ RUN apk add --no-cache \
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
+
+# 土台のイメージの healthcheck は管理用の口（:2019）を見るが、php-server では無効なので、アプリの /up を見る
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/up || exit 1

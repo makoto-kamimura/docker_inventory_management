@@ -75,6 +75,7 @@ services:
       PORT: 3002
       API_BASE_URL: ${API_BASE_URL:-http://demo-inventory-api:8000}
       API_TOKEN: ${API_TOKEN}
+      ALEXA_SKILL_ID: ${ALEXA_SKILL_ID:-}
     networks:
       default: {}
       prod_inventory: {}

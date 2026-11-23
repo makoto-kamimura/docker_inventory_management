@@ -202,7 +202,13 @@ const ErrorHandler = {
 
 // ── Express サーバー ──────────────────────────────────────────────────────────
 
+// スキル ID。Amazon の署名が示すのは「Amazon から来た」ことだけなので、「このスキルから来た」ことは
+// スキル ID で確かめる (確かめないと、ほかの人のスキルのエンドポイントをここへ向けて在庫を減らせる)。
+// 未設定なら、すべての要求を断る (安全側に倒す)
+const SKILL_ID = (process.env.ALEXA_SKILL_ID || '').trim();
+
 const skill = Alexa.SkillBuilders.custom()
+  .withSkillId(SKILL_ID || null)
   .addRequestHandlers(
     LaunchRequestHandler,
     DecrementStockIntentHandler,
@@ -218,10 +224,18 @@ const skill = Alexa.SkillBuilders.custom()
 const adapter = new ExpressAdapter(skill, true, true);
 
 const app = express();
-app.post('/alexa', adapter.getRequestHandlers());
+if (SKILL_ID) {
+  app.post('/alexa', adapter.getRequestHandlers());
+} else {
+  console.warn('ALEXA_SKILL_ID is not set: rejecting all Alexa requests');
+  app.post('/alexa', (req, res) => {
+    res.status(503).json({ message: 'Alexa skill ID is not configured.' });
+  });
+}
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
   console.log(`Alexa skill server running on port ${PORT}`);
   console.log(`API_BASE_URL: ${process.env.API_BASE_URL}`);
+  console.log(`Skill ID verification: ${SKILL_ID ? 'enabled' : 'NOT CONFIGURED (all requests rejected)'}`);
 });

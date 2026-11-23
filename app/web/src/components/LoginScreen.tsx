@@ -1,16 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type User } from "@/lib/api";
 import { errorMessage } from "@/lib/inventory";
+import { ssoErrorMessage, startSso } from "@/lib/sso";
 import { CalendarClock, ScanLine, TriangleAlert } from "lucide-react";
 import { LogoMark, cls } from "./ui";
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // SSO から戻ってきたときのエラー (?sso_error=...)。この画面はブラウザでだけ描く
+  const [error, setError] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : ssoErrorMessage(new URLSearchParams(window.location.search).get("sso_error"), "login"),
+  );
   const [submitting, setSubmitting] = useState(false);
+  const [sso, setSso] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api.ssoProviders().then((p) => setSso(p.sso ? p.sso_name || "SSO" : null));
+    if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   const submit = async () => {
     setSubmitting(true);
@@ -74,6 +86,19 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: User) => void }
         >
           {submitting ? "ログイン中..." : "ログイン"}
         </button>
+        {sso && (
+          <>
+            <p className="text-center text-xs text-zinc-500">または</p>
+            <button
+              type="button"
+              onClick={() => void startSso("login").catch((e) => setError(errorMessage(e)))}
+              className="w-full rounded-lg border border-zinc-300 px-4 py-2.5 font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              {sso} でログイン
+            </button>
+            <p className="text-center text-xs text-zinc-500">「アカウント」で {sso} を連携した人だけが使えます。</p>
+          </>
+        )}
       </form>
       <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-zinc-500">
         <li className="flex items-center gap-1.5 whitespace-nowrap">

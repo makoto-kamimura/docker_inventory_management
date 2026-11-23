@@ -29,7 +29,7 @@ export function formatChange(change: number): string {
 
 // --- 画面の見出しと説明 ------------------------------------------------------
 
-export type Screen = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics";
+export type Screen = "scan" | "list" | "item" | "category" | "group" | "storage" | "analytics" | "account";
 
 export const SCREEN_INTRO: Record<Screen, { title: string; description: string }> = {
   scan: {
@@ -55,6 +55,10 @@ export const SCREEN_INTRO: Record<Screen, { title: string; description: string }
   storage: {
     title: "保管場所",
     description: "「キッチン上の棚」など、物品を置いている場所です。一覧を保管場所別に表示できます。",
+  },
+  account: {
+    title: "アカウント",
+    description: "ログイン中の利用者と、共通のアカウント（SSO）でのログインの設定です。",
   },
   analytics: {
     title: "分析",

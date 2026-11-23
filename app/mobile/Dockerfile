@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 ENV TZ=Asia/Tokyo \
     EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0 \

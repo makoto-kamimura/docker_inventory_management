@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from "react";
 import {
-  Boxes,
   CircleAlert,
   CircleCheck,
   Info,
@@ -83,9 +82,8 @@ export function useBusy() {
 export function LogoMark({ size = "md" }: { size?: "md" | "lg" }) {
   const box = size === "lg" ? "h-12 w-12 rounded-2xl" : "h-9 w-9 rounded-xl";
   return (
-    <span className={`grid shrink-0 place-items-center bg-primary text-primary-foreground shadow-sm ${box}`}>
-      <Boxes aria-hidden className={size === "lg" ? "h-7 w-7" : "h-5 w-5"} />
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/logo.svg" alt="" className={`shrink-0 shadow-sm ${box}`} />
   );
 }
 

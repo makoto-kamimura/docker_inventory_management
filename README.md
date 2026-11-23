@@ -249,7 +249,7 @@ Alexa   : 「マウスを1個払い出しました。残り4個です。他に�
 
 | レイヤ | 技術 | 備考 |
 |---|---|---|
-| API（開発） | PHP 8.4 / Laravel 12 / Eloquent / `php artisan serve` | ソースを bind mount し即時反映 |
+| API（開発） | PHP 8.4 / Laravel 12 / Eloquent / FrankenPHP（`php-server`） | ソースを bind mount し即時反映（ワーカーではない通常のモードなので、リクエストごとに読み直す） |
 | API（本番） | PHP 8.4 FPM（`php:8.4-fpm-alpine`）+ Composer `--no-dev` | `migrate --force` と `config:cache` を entrypoint で実行 |
 | Web | Next.js 16（App Router）/ React 19 / Tailwind v4 / TypeScript | Docker（node:22-alpine）で起動。破壊的変更を含むため `app/web/AGENTS.md` に従う |
 | モバイル | Expo 58 / React Native 0.88 / TypeScript / expo-camera | ホスト側で起動。`app/mobile/AGENTS.md` に従う |
@@ -339,7 +339,7 @@ docker_inventory_management/
 | `ALEXA_SKILL_ID` | 空（すべての要求を断る） | Alexa 方式 B が受け付けるスキルの ID（[D11](#16-決定事項)） |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 空（SSO は無効） | SSO の認証サーバーとクライアント（[10章](#10-認証の実装)） |
 | `PUBLIC_BASE_URL` | — | アプリの公開 URL。認証サーバーに登録するリダイレクト URI は `{PUBLIC_BASE_URL}/api/auth/sso/callback` |
-| `OIDC_REQUIRE_MFA` / `OIDC_DISPLAY_NAME` / `OIDC_MOBILE_REDIRECT_PREFIXES` / `OIDC_LINK_DENY_EMAIL_DOMAINS` / `OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY` | `true` / `SSO` / `inventory://,exp://` / `example.com` / `false` | SSO の細かい設定。`php artisan serve` の子プロセスは環境変数を引き継がないので、`wait-for-db.sh` が `.env` に書き写す |
+| `OIDC_REQUIRE_MFA` / `OIDC_DISPLAY_NAME` / `OIDC_MOBILE_REDIRECT_PREFIXES` / `OIDC_LINK_DENY_EMAIL_DOMAINS` / `OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY` | `true` / `SSO` / `inventory://,exp://` / `example.com` / `false` | SSO の細かい設定。`wait-for-db.sh` が `.env` にも書き写す（配信と artisan のコマンドが同じ値を見るように） |
 
 ### 9.6 クイックスタート
 
@@ -588,7 +588,7 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | 項目 | dev | prod |
 |---|---|---|
 | compose ファイル | `docker-compose.yml` | `docker-compose.prod.yml` |
-| API の実行 | `php artisan serve` | PHP-FPM |
+| API の実行 | FrankenPHP（`php-server`） | PHP-FPM |
 | ソースの反映 | bind mount で即時 | イメージに焼き込み（要 rebuild） |
 | 公開ポート | 8000 / 3000 / 8080 / 3306 | 80 / 443 のみ |
 | マイグレーション | `MIGRATE_MODE=migrate` / `fresh` | `migrate --force` 固定 |
@@ -616,6 +616,7 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | D9 | 保管場所はカテゴリではなく品目に紐づける（`items.storage_location_id`）。`storage_locations.category_id` は互換のため nullable で残す |
 | D10 | `AuthenticateToken` は Laravel の印のインターフェース `AuthenticatesRequests` を実装し、ミドルウェアの優先度の一覧でルートのモデルの解決（`SubstituteBindings`）より先に動かす。テナントのグローバルスコープは、ログイン中のユーザーがいることを前提にしているため。`tests/Feature/TenantIsolationTest.php` で守る |
 | D11 | Alexa 方式 B は、環境変数 `ALEXA_SKILL_ID` のスキルからの要求だけを受け付ける（`withSkillId`）。署名の検証は「Amazon から来た」ことしか示さないため。未設定なら起動時に警告を出し、すべての要求を 503 で断る |
+| D12 | 開発・デモの API は、FrankenPHP の `php-server`（ワーカーではない通常のモード）で配信する。`php artisan serve` は開発用の 1 プロセスのサーバーで、遅いリクエストがあると、ほかのリクエストが待たされるため。ポートは今までどおり 8000。本番用の構成（`Dockerfile.prod`）は PHP-FPM のまま |
 
 ## 17. 未決事項
 

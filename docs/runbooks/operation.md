@@ -71,7 +71,7 @@ docker compose logs -f web     # Web 起動ログ
 2. `MIGRATE_MODE` (デフォルト `migrate`) に応じてマイグレーション実行
    - `migrate` → `php artisan migrate --force` (差分適用のみ。**既存データ保持**)
    - `fresh`   → `php artisan migrate:fresh --seed --force` (全 drop → 再投入)
-3. `php artisan serve --host=0.0.0.0 --port=8000`
+3. `frankenphp php-server --listen :8000 --root public/`（FrankenPHP で配信する）
 
 ### 3.2 初期化したい / 初回シード投入
 
@@ -786,7 +786,7 @@ server {
 
 | | dev (`docker-compose.yml`) | prod (`docker-compose.prod.yml`) |
 | --- | --- | --- |
-| Backend | `php artisan serve` (バインドマウント) | PHP-FPM (`--no-dev`、イメージ焼き込み) |
+| Backend | FrankenPHP の `php-server` (バインドマウント) | PHP-FPM (`--no-dev`、イメージ焼き込み) |
 | Web | `next dev` or `next build`+`next start` (バインドマウント) | `next build` 済みイメージで `next start` (非 root) |
 | DB | ホスト 3306 公開 | 内部のみ |
 | phpMyAdmin | ホスト 8080 公開、認証なし | Caddy 経由 + Basic 認証 |

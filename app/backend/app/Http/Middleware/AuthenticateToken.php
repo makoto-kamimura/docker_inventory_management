@@ -4,11 +4,18 @@ namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
 use Closure;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
-class AuthenticateToken
+/**
+ * AuthenticatesRequests は印のインターフェース。これを実装すると、Laravel のミドルウェアの優先度の一覧で
+ * SubstituteBindings (ルートのモデルの解決) より先に並ぶ。
+ * テナントのグローバルスコープ (BelongsToTenant) はログイン中のユーザーを前提にしているので、
+ * モデルの解決より先に認証する (README の D10)。外さないこと
+ */
+class AuthenticateToken implements AuthenticatesRequests
 {
     /**
      * Authorization: Bearer <token> を検証し、対応ユーザーを認証済みにする。

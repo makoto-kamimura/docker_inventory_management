@@ -462,8 +462,11 @@ docker compose -f platform/docker-compose.yml exec app php artisan migrate:statu
 docker compose -f platform/docker-compose.yml exec app php artisan db:seed
 docker compose -f platform/docker-compose.yml exec app php artisan tinker
 
-# テスト (現状アプリテストはなし)
+# テスト (API の Feature テスト。SQLite のメモリ上の DB で動く)
 docker compose -f platform/docker-compose.yml exec app php artisan test
+
+# Alexa スキルのテスト (node --test)
+docker run --rm -v "$PWD/app/alexa/skill":/app -w /app node:22-alpine sh -c 'npm ci && npm test'
 ```
 
 ### 6.2 DB に直接接続
@@ -806,33 +809,22 @@ server {
 「アレクサ、ストクルを開いて」
   → 「ストクルを開きました。何を払い出しますか？」
 
-「マウス」
-  → 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
+「マウスを2個」          ← 個数を省くと 1 個
+  → 「マウスを2個払い出しました。残り3個です。ほかに払い出すものはありますか？」
 
-「ボールペン」          ← 続けて払い出す場合
-  → 「ボールペンを1個払い出しました。残り2個です。他に払い出すものはありますか？」
+「取り消して」           ← 直前の払い出しを戻す
+  → 「マウスの払い出し2個を取り消しました。残り5個です。ほかに払い出すものはありますか？」
 
-「大丈夫」             ← 終了する場合 (「払い出さない」「いいえ」「結構です」でも可)
+「ボールペンの在庫は？」  ← 在庫の確認
+  → 「ボールペン（黒）は10個、ボールペン（赤）は2個です。ほかに何かありますか？」
+
+「大丈夫」              ← 終了する場合 (「いいえ」「結構です」「ストップ」でも可)
   → 「ストクルを閉じます。」
 ```
 
-#### 在庫が 0 の場合
+一言でも使える: 「アレクサ、ストクルでマウスを払い出して」「アレクサ、ストクルでマウスの在庫を教えて」。
 
-```
-「ハンマー」
-  → 「ハンマーの在庫は0個です。払い出しできません。」
-```
-
-#### 聞き取れなかった場合
-
-```
-（不明な発話）
-  → 「すみません、聞き取れませんでした。払い出す品名を教えてください。」
-```
-
-#### 終了コマンド
-
-「キャンセル」「ストップ」でも「ストクルを閉じます。」と応答してセッション終了する。
+品名が一部しか合わないとき・10 個以上のときは「〜を1個払い出しますか？」と確かめ、「はい」で払い出す。候補が複数あるときは「〜、〜のどれですか？」と聞き直す。応答の一覧は README の第 7 章。
 
 ---
 
@@ -845,7 +837,7 @@ server {
 | エンドポイント指定 | Lambda ARN | HTTPS URL |
 | 署名検証 | Alexa SDK 内部で実施 | `ask-sdk-express-adapter` が実施 |
 | コスト | AWS 無料枠内 (月 1M リクエスト) | サーバー費用に含まれる |
-| 更新手順 | zip ビルド → Lambda アップロード | `docker compose restart alexa-server` |
+| 更新手順 | zip ビルド → Lambda アップロード | `docker compose up -d --build alexa-server` |
 | 向いている場面 | AWS 環境がある / サーバーレスで動かしたい | 既存サーバーで完結させたい |
 
 ---
@@ -861,7 +853,7 @@ cd platform
 docker compose --profile alexa run --rm alexa-build
 ```
 
-`app/alexa/skill.zip`（約 1MB）が生成される。`index.js` と `node_modules` が含まれていることを確認:
+`app/alexa/skill.zip`（約 2MB）が生成される。`index.js`・`lib/` と `node_modules` が含まれていることを確認:
 
 ```bash
 python3 -c "
@@ -869,6 +861,7 @@ import zipfile
 with zipfile.ZipFile('../app/alexa/skill.zip') as z:
     names = z.namelist()
     print('index.js:', 'index.js' in names)
+    print('lib:', [n for n in names if n.startswith('lib/')])
     print('modules:', sum(1 for n in names if n.startswith('node_modules/')), 'files')
 "
 ```
@@ -886,7 +879,8 @@ with zipfile.ZipFile('../app/alexa/skill.zip') as z:
 | キー | 値 |
 | --- | --- |
 | `API_BASE_URL` | `https://inventory.example.com` |
-| `API_TOKEN` | (`docs/alexa-secrets.local.md` の値を参照) |
+| `API_TOKEN` | Alexa 用トークン（[alexa-setup.md](alexa-setup.md) の「Alexa 用トークンの発行」で発行したもの） |
+| `ALEXA_SKILL_ID` | スキル ID（`amzn1.ask.skill.…`）。未設定だとすべての要求をエラーにする |
 
 #### Step 4 — ランタイムとタイムアウトを確認
 
@@ -922,11 +916,12 @@ amzn1.ask.skill.872aecc6-f1b7-46c1-8374-41a4f8fe0f68
 | 症状 | 確認・対処 |
 | --- | --- |
 | スキルがリクエストに正しく応答できませんでした | CloudWatch ログ (モニタリングタブ → 「CloudWatch のログを表示」) でエラー確認 |
-| `Runtime.CallbackHandlerDeprecated` | ランタイムが Node.js 24 → Node.js 22.x に変更 |
-| `Unable to find a suitable request handler` | 未登録インテント。`index.js` にハンドラーを追加して再デプロイ |
+| `ALEXA_SKILL_ID is not configured` | Lambda の環境変数に `ALEXA_SKILL_ID` を設定する |
+| 「ストクルの設定に問題があり…」 | `API_TOKEN` が無効か期限切れ。Alexa 用トークンを発行し直して環境変数を更新 |
+| `Unable to find a suitable request handler` | 未登録インテント。`lib/skill.js` にハンドラーを追加して再デプロイ |
 | `SessionEndedRequest reason: "ERROR"` | Lambda レスポンスが仕様違反 (例: `LaunchRequest` で `addElicitSlotDirective` 使用) |
 | API タイムアウト | Lambda タイムアウトが短い (15 秒以上に変更) / `API_BASE_URL` 未設定 |
-| 品名が認識されない | `ITEM_NAME` スロット型に品名が登録されているか確認 (`ja-JP.json`) |
+| 品名が認識されない | 品名はスキルを開いたときに API から読んで Alexa に渡す (最大 100 件)。`ja-JP.json` を最新にしてモデルをビルドし直したか確認 |
 
 ---
 
@@ -934,20 +929,23 @@ amzn1.ask.skill.872aecc6-f1b7-46c1-8374-41a4f8fe0f68
 
 > **前提**: `platform/docker-compose.yml` に `alexa-server` サービスが定義済みであること。本番サーバーで Nginx が `inventory.example.com` のリバースプロキシを担っていること。
 
-#### Step 1 — `platform/.env` に API トークンを設定
+#### Step 1 — `platform/.env` に API トークンとスキル ID を設定
+
+トークンは [alexa-setup.md](alexa-setup.md) の「Alexa 用トークンの発行」で発行する (ログインで得たトークンは使わない)。
 
 ```bash
 # platform/.env
 API_BASE_URL=http://demo-inventory-api:8000
-API_TOKEN=<docs/alexa-secrets.local.md の値>
+API_TOKEN=<Alexa 用トークン>
+ALEXA_SKILL_ID=<スキル ID (amzn1.ask.skill.…)>
 ```
 
 #### Step 2 — alexa_server コンテナを起動
 
 ```bash
 cd platform
-docker compose up -d alexa-server
-docker compose logs alexa-server   # "Alexa skill server running on port 3002" を確認
+docker compose up -d --build alexa-server
+docker compose logs alexa-server   # "Alexa skill server running on port 3002" と "Skill ID verification: enabled" を確認
 ```
 
 #### Step 3 — Nginx の `/alexa` ルーティングを確認
@@ -999,7 +997,7 @@ Alexa シミュレーター (または実機) で `ストクルを開いて` →
 
 ```bash
 cd platform
-docker compose restart alexa-server
+docker compose up -d --build alexa-server   # app/alexa/skill/ からイメージを作り直す
 docker compose logs alexa-server   # 起動確認
 ```
 
@@ -1009,10 +1007,11 @@ docker compose logs alexa-server   # 起動確認
 | --- | --- |
 | `curl` が 404 | Nginx の `/alexa` location ブロックが未設定、または `alexa_server` が `proxy_network` に未接続 |
 | `curl` が 502 / 503 | `docker ps` で `alexa_server` が起動しているか確認。`docker logs alexa_server` でエラー確認 |
-| 「在庫システムに接続できませんでした」 | `API_BASE_URL` が間違っている (正: `http://demo-inventory-api:8000`)。`docker logs alexa_server` で `getItems error:` を確認 |
+| 「在庫システムに接続できませんでした」 | `API_BASE_URL` が間違っている (正: `http://demo-inventory-api:8000`)。`docker logs alexa_server` で `listItems failed:` を確認 |
 | 「スキルがリクエストに正しく応答できませんでした」 | Alexa Developer Console のエンドポイントが Lambda ARN のまま → HTTPS URL に変更 |
-| 401 エラー | `API_TOKEN` が正しくない。`platform/.env` を確認後 `docker compose restart alexa-server` |
-| 品名が認識されない | `ITEM_NAME` スロット型に品名が登録されているか確認 (`ja-JP.json`) |
+| 「ストクルの設定に問題があり…」/ ログに `listItems failed: 401` か `403` | `API_TOKEN` が無効・期限切れ、またはログインで得たトークンではなくなっている。Alexa 用トークンを発行し直し、`platform/.env` を直して `docker compose up -d alexa-server` |
+| どの発話にも応答しない・ログに `ALEXA_SKILL_ID is not set` | `platform/.env` の `ALEXA_SKILL_ID` を設定して `docker compose up -d alexa-server` |
+| 品名が認識されない | `ja-JP.json` を最新にしてモデルをビルドし直したか確認 (品名はスキルを開いたときに API から渡す) |
 
 ---
 
@@ -1028,7 +1027,7 @@ docker compose logs alexa-server   # 起動確認
 | `app/backend/bootstrap/app.php`        | Laravel ブート設定 (api ルート登録あり)|
 | `app/backend/routes/api.php`           | API ルーティング                       |
 | `app/backend/app/Http/Controllers/`    | `Auth` / `Item` / `Category` / `StorageLocation` / `Analytics` Controller |
-| `app/backend/app/Http/Middleware/`     | `AuthenticateToken` (`auth.token` エイリアス、Bearer 認証) |
+| `app/backend/app/Http/Middleware/`     | `AuthenticateToken` (`auth.token` エイリアス、Bearer 認証) / `EnsureTokenAbility` (`ability:` エイリアス、用途を絞ったトークンの操作の確認) |
 | `app/backend/app/Models/`              | `Item` / `Category` / `ItemHistory` / `StorageLocation` / `ApiToken` / `User` |
 | `app/backend/config/cors.php`          | CORS 許可オリジン定義                  |
 | `app/backend/database/migrations/`     | スキーマ定義                           |
@@ -1036,7 +1035,9 @@ docker compose logs alexa-server   # 起動確認
 | `app/mobile/app.json`                  | Expo 設定 (bundle id / package / camera 権限) |
 | `app/mobile/eas.json`                  | EAS Build プロファイル (preview / production) |
 | `app/alexa/interaction-model/ja-JP.json` | Alexa インタラクションモデル (インテント・スロット定義) |
-| `app/alexa/lambda/index.js`            | Alexa Lambda ハンドラー本体            |
+| `app/alexa/skill/lib/skill.js`         | Alexa のハンドラー本体 (Lambda と自サーバーで共通) |
+| `app/alexa/skill/index.js` / `server.js` | Alexa の入口 (Lambda / 自サーバー)    |
+| `app/backend/app/Console/Commands/AlexaToken.php` | Alexa 用トークンの発行 (`php artisan inventory:alexa-token`) |
 | `app/alexa/skill.zip`                  | Lambda デプロイ用 zip (ビルド後に生成、gitignore) |
 | `docs/alexa-secrets.local.md`          | Alexa スキル ID / Lambda ARN / API トークン等の秘匿情報 (gitignore) |
 | `platform/mysql/`                      | MySQL データ (gitignore)               |

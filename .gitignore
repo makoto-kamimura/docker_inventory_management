@@ -130,9 +130,9 @@ docs/archive/**/.next/
 docs/archive/reactnative_app/
 
 # ============================================================
-# app/alexa (Alexa Lambda)
+# app/alexa (Alexa スキル。Lambda と自サーバーで共通)
 # ============================================================
-app/alexa/lambda/node_modules/
+app/alexa/skill/node_modules/
 app/alexa/skill.zip
 
 # ============================================================
@@ -155,6 +155,3 @@ docs/*.local.md
 *.bk
 docs/qr.md
 docs/qr.png
-
-# platform/alexa-server の依存物(他サービスの node_modules と同様に除外)
-platform/alexa-server/node_modules/

@@ -308,7 +308,10 @@ export function HistoryModal({ item, onClose }: { item: Item; onClose: () => voi
               </span>
               <span className="flex flex-col items-end text-right leading-tight">
                 <span className="text-zinc-500">{new Date(h.changed_at).toLocaleString("ja-JP")}</span>
-                <span className="text-xs text-zinc-400">{h.user?.name ?? "不明"}</span>
+                <span className="text-xs text-zinc-400">
+                  {h.user?.name ?? "不明"}
+                  {h.source === "alexa" && "（Alexa）"}
+                </span>
               </span>
             </li>
           ))}

@@ -75,6 +75,8 @@ export type ItemHistory = {
   created_at?: string;
   updated_at?: string;
   user?: { id: number; name: string } | null;
+  /** 操作の経路。Alexa からの増減なら "alexa"、Web / モバイルは null */
+  source?: string | null;
 };
 
 export type Inventory = {

@@ -9,7 +9,7 @@ class ItemHistory extends Model
 {
     use BelongsToTenant;
 
-    protected $fillable = ['item_id', 'user_id', 'change', 'amount', 'expires_at', 'changed_at', 'tenant_id'];
+    protected $fillable = ['item_id', 'user_id', 'change', 'amount', 'expires_at', 'changed_at', 'tenant_id', 'source'];
 
     public function item(): BelongsTo
     {

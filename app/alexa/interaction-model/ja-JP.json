@@ -9,17 +9,101 @@
             {
               "name": "ItemName",
               "type": "ITEM_NAME"
+            },
+            {
+              "name": "Quantity",
+              "type": "AMAZON.NUMBER"
             }
           ],
-          "samples": ["{ItemName}"]
+          "samples": [
+            "{ItemName}",
+            "{ItemName}を払い出して",
+            "{ItemName}を{Quantity}個払い出して",
+            "{ItemName}を使った",
+            "{ItemName}を{Quantity}個使った",
+            "{ItemName}を使います",
+            "{ItemName}を{Quantity}個使います",
+            "{ItemName}を取り出した",
+            "{ItemName}を{Quantity}個取り出した",
+            "{ItemName}を減らして",
+            "{ItemName}を{Quantity}個減らして",
+            "{ItemName}を持っていきます",
+            "{ItemName}を{Quantity}個持っていきます",
+            "{ItemName}を{Quantity}個",
+            "{ItemName}{Quantity}個",
+            "{ItemName}の払い出し"
+          ]
         },
         {
-          "name": "AMAZON.HelpIntent",
-          "samples": []
+          "name": "CheckStockIntent",
+          "slots": [
+            {
+              "name": "ItemName",
+              "type": "ITEM_NAME"
+            }
+          ],
+          "samples": [
+            "{ItemName}の在庫",
+            "{ItemName}の在庫は",
+            "{ItemName}の在庫を教えて",
+            "{ItemName}の在庫はいくつ",
+            "{ItemName}の在庫は何個",
+            "{ItemName}は何個ある",
+            "{ItemName}はいくつある",
+            "{ItemName}は何個残ってる",
+            "{ItemName}の残り",
+            "{ItemName}の残りは何個",
+            "{ItemName}はあと何個"
+          ]
+        },
+        {
+          "name": "UndoIntent",
+          "slots": [],
+          "samples": [
+            "取り消して",
+            "取り消し",
+            "今のを取り消して",
+            "さっきのを取り消して",
+            "元に戻して",
+            "戻して",
+            "間違えた",
+            "間違えました",
+            "今のなし"
+          ]
+        },
+        {
+          "name": "AMAZON.YesIntent",
+          "samples": [
+            "はい",
+            "うん",
+            "お願い",
+            "お願いします",
+            "それで",
+            "それでお願いします",
+            "払い出して",
+            "オッケー"
+          ]
         },
         {
           "name": "AMAZON.NoIntent",
-          "samples": ["大丈夫", "払い出さない", "いいえ", "結構です", "ありません"]
+          "samples": [
+            "大丈夫",
+            "払い出さない",
+            "いいえ",
+            "結構です",
+            "ありません",
+            "やめて",
+            "違う",
+            "ないです"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": [
+            "使い方",
+            "使い方を教えて",
+            "何ができるの"
+          ]
         },
         {
           "name": "AMAZON.CancelIntent",
@@ -32,21 +116,61 @@
         {
           "name": "AMAZON.FallbackIntent",
           "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
         }
       ],
       "types": [
         {
           "name": "ITEM_NAME",
           "values": [
-            { "name": { "value": "ハンマー" } },
-            { "name": { "value": "ドライバー" } },
-            { "name": { "value": "ボールペン" } },
-            { "name": { "value": "鉛筆" } },
-            { "name": { "value": "マウス" } },
-            { "name": { "value": "キーボード" } },
-            { "name": { "value": "ノート" } },
-            { "name": { "value": "テープ" } },
-            { "name": { "value": "はさみ" } }
+            {
+              "name": {
+                "value": "ハンマー"
+              }
+            },
+            {
+              "name": {
+                "value": "ドライバー"
+              }
+            },
+            {
+              "name": {
+                "value": "ボールペン"
+              }
+            },
+            {
+              "name": {
+                "value": "鉛筆"
+              }
+            },
+            {
+              "name": {
+                "value": "マウス"
+              }
+            },
+            {
+              "name": {
+                "value": "キーボード"
+              }
+            },
+            {
+              "name": {
+                "value": "ノート"
+              }
+            },
+            {
+              "name": {
+                "value": "テープ"
+              }
+            },
+            {
+              "name": {
+                "value": "はさみ"
+              }
+            }
           ]
         }
       ]

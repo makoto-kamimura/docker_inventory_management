@@ -65,15 +65,13 @@ services:
         condition: service_healthy
 
   alexa-server:
-    image: node:22-alpine
+    # Alexa スキルの自サーバー (方式 B)。ハンドラーは Lambda (方式 A) と共通の app/alexa/skill/lib/
+    build: ../app/alexa/skill
     container_name: alexa_server
-    volumes:
-      - ./alexa-server:/app
-    working_dir: /app
-    command: sh -c "npm install && node index.js"
     environment:
       PORT: 3002
       API_BASE_URL: ${API_BASE_URL:-http://demo-inventory-api:8000}
+      # Alexa 用のトークン (php artisan inventory:alexa-token <メール> で発行。品目の参照と増減だけができる)
       API_TOKEN: ${API_TOKEN}
       ALEXA_SKILL_ID: ${ALEXA_SKILL_ID:-}
     networks:
@@ -85,12 +83,13 @@ services:
     restart: unless-stopped
 
   alexa-build:
-    image: node:20-alpine
+    # 方式 A (Lambda) にアップロードする app/alexa/skill.zip を作る
+    image: node:22-alpine
     profiles: ["alexa"]
     volumes:
       - ../app/alexa:/workspace
-    working_dir: /workspace/lambda
-    command: sh -c "apk add --no-cache zip && npm install && zip -r ../skill.zip index.js node_modules"
+    working_dir: /workspace/skill
+    command: sh -c "apk add --no-cache zip && npm ci --omit=dev && rm -f ../skill.zip && zip -r ../skill.zip index.js lib node_modules package.json"
 
   web:
     build: ../app/web

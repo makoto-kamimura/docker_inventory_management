@@ -14,7 +14,7 @@
 
 | 考え方 | 内容 |
 |---|---|
-| 増減は、1回の操作で | 一覧の `＋` / `−`、バーコードの読み取り、Alexa への一言のどれでも、1個単位で在庫を増減できる |
+| 増減は、1回の操作で | 一覧の `＋` / `−`、バーコードの読み取り、Alexa への一言のどれでも、在庫を増減できる（Alexa では「マウスを3個」のように個数も言える） |
 | 手が空いていなくても | 両手がふさがっていても、Alexa に品名を言うだけで払い出せる |
 | 補充のときだけ、少し詳しく | 在庫切れから補充するときだけ、単価と期限を記録する（任意）。ふだんの増減は即時に反映する |
 | 誰が動かしたかを残す | 増減のたびに、日時と操作したユーザーを履歴に残す |
@@ -22,7 +22,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| ステータス | **主要機能は実装済み**（Web・モバイル・Alexa）。認可ロール・自動テストは未実装（[開発ロードマップ](#8-開発ロードマップ)） |
+| ステータス | **主要機能は実装済み**（Web・モバイル・Alexa）。認可ロール・CI は未実装（[開発ロードマップ](#8-開発ロードマップ)） |
 | 作成者 | **Makoto Kamimura** — [@makoto-kamimura](https://github.com/makoto-kamimura) |
 
 このREADMEは、プロジェクト紹介と仕様書を兼ね、次の2部と付録で構成する。運用手順などの補足資料は [docs/](docs/) に置く。
@@ -67,7 +67,7 @@ Web とモバイルは同じ機能を持つ（画面構成のみ各プラット�
 | 物品追加 | 初期在庫・単価・期限・グループ・保管場所を指定して登録 |
 | マスタ管理 | カテゴリ / グループ / 保管場所の追加・削除 |
 | 分析 | 在庫数・補充金額の推移（日毎 / 月毎、総合計 / カテゴリ別） |
-| Alexa で払い出し | 「アレクサ、ストクルを開いて」→「〇〇」で在庫を 1 個払い出す |
+| Alexa で払い出し | 「アレクサ、ストクルでマウスを2個払い出して」のように、声で払い出す。在庫の確認と、直前の払い出しの取り消しもできる |
 | テナント分離 | データはテナント単位で分離され、ユーザーは自分のテナントの品目だけを扱う |
 
 ## 使い方のイメージ
@@ -113,7 +113,7 @@ flowchart LR
 | 種別 | 内容 |
 |---|---|
 | ユーザー | メールアドレスとパスワードでログインする。所属テナントの品目・マスタ・履歴をすべて操作できる |
-| Alexa スキル | 環境変数 `API_TOKEN` のトークンを持つユーザーとして API を呼ぶ。操作対象はそのユーザーのテナントの品目 |
+| Alexa スキル | 環境変数 `API_TOKEN` の Alexa 用トークン（`php artisan inventory:alexa-token` で発行）の持ち主として API を呼ぶ。できるのは品目の参照と増減だけで、操作対象はその人のテナントの品目（[D13](#16-決定事項)） |
 
 - ユーザーはシーダー（または artisan）で作成する。画面からの新規登録・ユーザー管理はない（[docs/runbooks/operation.md §3.5](docs/runbooks/operation.md)）。
 - 認可ロール（管理者 / 一般などの権限差）はない（[Q1](#17-未決事項)）。
@@ -130,7 +130,7 @@ flowchart LR
 | 4.5 | バーコードを読む | 登録済みなら在庫 +1（在庫 0 なら 4.4 のモーダル）。未登録なら、読んだバーコードを引き継いで物品追加へ進む |
 | 4.6 | 絞り込む・並べ替える | 「すべて / 在庫切れ / 期限 1ヶ月以内」で絞り込み、「カテゴリ別 / 保管場所別」で表示を切り替える |
 | 4.7 | 分析する | 在庫数（水準）または補充金額（合計）を、日毎 / 月毎・総合計 / カテゴリ別の折れ線で見る |
-| 4.8 | Alexa で払い出す | 「アレクサ、ストクルを開いて」→ 品名を言うと 1 個払い出し、残数を答える（[第7章](#7-alexa-スキル)） |
+| 4.8 | Alexa で払い出す | 「アレクサ、ストクルを開いて」→ 品名（と個数）を言うと払い出し、残数を答える。在庫の確認と取り消しもできる（[第7章](#7-alexa-スキル)） |
 
 ## 5. 画面一覧
 
@@ -169,17 +169,17 @@ Web と同じ画面構成に、プルリフレッシュとカメラによるバ�
 |---|---|---|---|
 | F-01 | 在庫一覧 | カテゴリ・グループ・保管場所を同梱し、名前順で返す。単価の平均（`avg_amount`）と最も早い期限（`nearest_expires_at`）を付ける | Web / モバイル |
 | F-02 | 物品追加 | 4.2 の項目で登録。初期在庫 > 0 なら履歴（金額・期限つき）を追加 | Web / モバイル |
-| F-03 | 払い出し（−1） | 1 個減らして履歴を追加。在庫 0 なら 409 | Web / モバイル / Alexa |
-| F-04 | 在庫増（+1） | 1 個増やして履歴を追加。在庫 0 からの補充時のみ金額・期限を記録 | Web / モバイル |
+| F-03 | 払い出し（−1） | 1 個（Alexa は指定した個数）減らして履歴を追加。在庫が足りなければ 409 | Web / モバイル / Alexa |
+| F-04 | 在庫増（+1） | 1 個増やして履歴を追加。在庫 0 からの補充時のみ金額・期限を記録。Alexa は払い出しの取り消しに使う | Web / モバイル / Alexa |
 | F-05 | バーコードスキャン | 一致なら入庫（+1。在庫 0 なら金額入力へ）/ 払い出し（−1）を選ぶ、未登録は物品追加へ（[11.1節](#111-バーコードスキャンの応答契約)） | Web（キーボード / USB リーダー）/ モバイル（カメラ） |
 | F-06 | 品目の編集 | 名前・バーコード・カテゴリ・グループ・保管場所の変更、品目の削除 | Web / モバイル |
-| F-07 | 履歴 | 新しい順に、日時・増減数・更新者・金額・期限を表示 | Web / モバイル |
+| F-07 | 履歴 | 新しい順に、日時・増減数・更新者・金額・期限を表示。Alexa からの増減は、更新者の横に「（Alexa）」と出す | Web / モバイル |
 | F-08 | 絞り込み・表示切り替え | すべて / 在庫切れ / 期限 1ヶ月以内、カテゴリ別 / 保管場所別 | Web / モバイル |
 | F-09 | マスタ管理 | カテゴリ / グループ / 保管場所の一覧・追加・削除（[11.3節](#113-マスタの削除ルール)） | Web / モバイル |
 | F-10 | 分析 | 在庫数 / 補充金額 × 日毎 / 月毎 × 総合計 / カテゴリ別の時系列 | Web / モバイル |
 | F-11 | 認証 | ログインでトークンを発行し、以降の API に付与。ログアウトで失効 | Web / モバイル |
 | F-12 | テナント分離 | すべてのデータを所属テナントで絞り込む | API |
-| F-13 | Alexa 払い出し | 品名を認識して 1 個払い出し、残数を告知する | Alexa |
+| F-13 | Alexa 払い出し | 品名と個数を認識して払い出し、残数を告知する。在庫の確認、直前の払い出しの取り消し | Alexa |
 
 ## 7. Alexa スキル
 
@@ -190,52 +190,68 @@ Web と同じ画面構成に、プルリフレッシュとカメラによるバ�
 | スキル種別 | カスタムスキル |
 | 呼び出し名 | `ストクル` |
 | 対応言語 | 日本語（ja-JP） |
-| バックエンド | **方式 A**：AWS Lambda（Node.js 22.x）/ **方式 B**：自サーバーの Express（`platform/alexa-server/`） |
-| 対応操作 | 在庫払い出し −1（`DecrementStockIntent`） |
+| バックエンド | **方式 A**：AWS Lambda（Node.js 22.x）/ **方式 B**：自サーバーの Express（`alexa-server` コンテナ） |
+| 対応操作 | 払い出し（個数の指定ができる）、在庫の確認、直前の払い出しの取り消し |
+| API の権限 | Alexa 用のトークン（品目の参照と増減だけができる。期限つき。[D13](#16-決定事項)） |
 
 | 方式 | バックエンド | 概要 |
 |---|---|---|
 | A: Lambda | AWS Lambda（Node.js 22.x） | `app/alexa/skill.zip` を Lambda にアップロード |
-| B: 自サーバー | `alexa-server` コンテナ（Express） | `docker compose up -d alexa-server` で起動 |
+| B: 自サーバー | `alexa-server` コンテナ（Express） | `docker compose up -d --build alexa-server` で起動 |
 
-セットアップ手順は [docs/runbooks/alexa-setup.md](docs/runbooks/alexa-setup.md) を参照。
+ハンドラーは `app/alexa/skill/lib/` の 1 か所にあり、Lambda の入口（`index.js`）と自サーバーの入口（`server.js`）が同じものを使う（[D6](#16-決定事項)）。セットアップ手順は [docs/runbooks/alexa-setup.md](docs/runbooks/alexa-setup.md) を参照。
 
 ### 7.2 対話フロー
 
 ```
 ユーザー : 「アレクサ、ストクルを開いて」
 Alexa   : 「ストクルを開きました。何を払い出しますか？」
-             ↓ (セッション継続・reprompt あり)
-ユーザー : 「マウス」
-Alexa   : 「マウスを1個払い出しました。残り4個です。他に払い出すものはありますか？」
-             ↓ (セッション継続・reprompt あり)
-ユーザー : (A) 「ボールペン」 → 再度払い出し処理
-           (B) 「大丈夫」「払い出さない」「いいえ」等 → 「ストクルを閉じます。」でセッション終了
-           (C) 「キャンセル」「ストップ」 → 「ストクルを閉じます。」でセッション終了
+ユーザー : 「マウスを2個」
+Alexa   : 「マウスを2個払い出しました。残り3個です。ほかに払い出すものはありますか？」
+ユーザー : 「間違えた、取り消して」
+Alexa   : 「マウスの払い出し2個を取り消しました。残り5個です。ほかに払い出すものはありますか？」
+ユーザー : 「ボールペンの在庫は？」
+Alexa   : 「ボールペン（黒）は10個、ボールペン（赤）は2個です。ほかに何かありますか？」
+ユーザー : 「大丈夫」
+Alexa   : 「ストクルを閉じます。」
 ```
 
-- 在庫が 0 の場合：「マウスの在庫は0個です。払い出しできません。」
-- 品名が未登録の場合：「ダカラは見つかりませんでした。」
+一言で呼び出すこともできる（「アレクサ、ストクルでマウスを払い出して」「アレクサ、ストクルでマウスの在庫を教えて」）。
+
+| 場面 | 応答 |
+|---|---|
+| 品名が完全に一致した | そのまま払い出す（10 個以上のときは「〜を10個払い出しますか？」と確かめる） |
+| 一部だけが一致する品目が 1 つ（例：「ウォッシュ」→「マウスウォッシュ」） | 「マウスウォッシュを1個払い出しますか？」と確かめ、「はい」で払い出す。「いいえ」ならやめる |
+| 一部だけが一致する品目が 2〜3 個 | 「ボールペン（黒）、ボールペン（赤）のどれですか？」と品名だけを聞き直す（言われた個数は残す） |
+| 当てはまる品目が 4 個以上 / 見つからない | 品名を言い直してもらう（セッションは続ける） |
+| 同じ名前の品目が複数ある | 音声では選べないので、Web かアプリで払い出すよう案内する |
+| 在庫が足りない | 「マウスは残り2個のため、3個は払い出せません。」 |
+| 取り消し | 開いているあいだの、直前の払い出し 1 回分だけを戻す（在庫を戻す履歴を足す） |
+| トークンが無効・期限切れ | 「ストクルの設定に問題があり…管理者に連絡してください。」と答えて閉じる |
 
 ### 7.3 インテント
 
-| インテント | 役割 | サンプル発話 |
+| インテント | 役割 | サンプル発話（抜粋） |
 |---|---|---|
-| `DecrementStockIntent` | 在庫払い出し | `{ItemName}` |
-| `AMAZON.NoIntent` | 終了（不要） | 大丈夫 / 払い出さない / いいえ / 結構です / ありません |
-| `AMAZON.HelpIntent` | ヘルプ | （組み込み） |
-| `AMAZON.CancelIntent` / `AMAZON.StopIntent` | キャンセル・停止 | （組み込み） |
-| `AMAZON.FallbackIntent` | 聞き取れない場合の再 elicit | （組み込み） |
+| `DecrementStockIntent` | 払い出し。スロット `ItemName`（`ITEM_NAME`）と `Quantity`（`AMAZON.NUMBER`。省略時 1） | `{ItemName}` / `{ItemName}を払い出して` / `{ItemName}を{Quantity}個使った` |
+| `CheckStockIntent` | 在庫の確認（スロット `ItemName`） | `{ItemName}の在庫は` / `{ItemName}は何個ある` / `{ItemName}の残り` |
+| `UndoIntent` | 直前の払い出しの取り消し | 取り消して / 元に戻して / 間違えた |
+| `AMAZON.YesIntent` | 確かめたときの「はい」 | はい / お願いします / それで |
+| `AMAZON.NoIntent` | 確かめたときの「いいえ」（払い出しをやめる）。それ以外のときは終了 | 大丈夫 / いいえ / やめて |
+| `AMAZON.HelpIntent` | 使い方の案内 | 使い方 / 何ができるの |
+| `AMAZON.CancelIntent` / `AMAZON.StopIntent` / `AMAZON.NavigateHomeIntent` | 終了 | （組み込み） |
+| `AMAZON.FallbackIntent` | 聞き取れないときに品名を聞き直す | （組み込み） |
 
-- 品名はスロット型 `ITEM_NAME`（`app/alexa/interaction-model/ja-JP.json`）で認識する。登録値にない品名も受け付けるが、実際の品目名を登録しておくと認識精度が上がる。
-- 品名は完全一致を優先し、見つからなければ部分一致で探す（大文字小文字・全角半角・ひらがな / カタカナを正規化）。短い品名は別の品目に一致することがある（例：「マウス」→「マウスウォッシュ」）。
+- 対話モデルは `app/alexa/interaction-model/ja-JP.json`。スロット型 `ITEM_NAME` の登録値は例として置いているもので、実際の品名は、スキルを開いたとき（または最初の応答のとき）に API から読み、**動的エンティティ**として Alexa に渡す（最大 100 件）。これに当たった発話は、品目 ID で特定する。
+- 動的エンティティに当たらなかったときは、品名で探す。完全一致を優先し、なければ部分一致（2 文字以上）で探す。比べるときは全角半角・大文字小文字・空白・ひらがな / カタカナをそろえる（`lib/match.js`）。
+- 品名は利用者が入力したものなので、読み上げの SSML に入れる前にエスケープする。
 
 ## 8. 開発ロードマップ
 
 | 区分 | 内容 | 状態 |
 |---|---|---|
 | 実装済み | 在庫一覧・物品追加・増減と履歴、バーコードスキャン、補充金額と期限、カテゴリ / グループ / 保管場所、品目の編集・削除、分析、トークン認証、マルチテナント、Alexa スキル（方式 A / B）、本番構成（Caddy）、EAS Build | 完了 |
-| 今後 | 認可ロール、画面からのユーザー管理、トークンの有効期限、自動テストと CI、エラーレスポンスの統一 | 未着手（[未決事項](#17-未決事項)） |
+| 今後 | 認可ロール、画面からのユーザー管理、ログインで発行するトークンの有効期限、CI、エラーレスポンスの統一 | 未着手（[未決事項](#17-未決事項)） |
 
 ---
 
@@ -253,7 +269,7 @@ Alexa   : 「マウスを1個払い出しました。残り4個です。他に�
 | API（本番） | PHP 8.4 FPM（`php:8.4-fpm-alpine`）+ Composer `--no-dev` | `migrate --force` と `config:cache` を entrypoint で実行 |
 | Web | Next.js 16（App Router）/ React 19 / Tailwind v4 / TypeScript | Docker（node:22-alpine）で起動。破壊的変更を含むため `app/web/AGENTS.md` に従う |
 | モバイル | Expo 58 / React Native 0.88 / TypeScript / expo-camera | ホスト側で起動。`app/mobile/AGENTS.md` に従う |
-| Alexa | `ask-sdk-core` / `axios`（方式 B は `ask-sdk-express-adapter` / `express` を追加） | |
+| Alexa | Node.js 22 / `ask-sdk-core` / `axios`（方式 B は `ask-sdk-express-adapter` / `express` を使う） | テストは `node --test`（`app/alexa/skill/test/`） |
 | DB | MySQL 8.0 | 開発は phpMyAdmin 同梱 |
 | リバースプロキシ（本番） | Caddy 2 | Let's Encrypt による自動 TLS |
 | コンテナ | Docker Compose v2 | `version:` キーは書かない |
@@ -272,11 +288,11 @@ Alexa   : 「マウスを1個払い出しました。残り4個です。他に�
 └─────────────────────┘                                │ phpMyAdmin :8080 │
 ┌─────────────────────┐     ┌─────────────────────────────────────────┐└──────────────────┘
 │ Amazon Alexa        │ ──▶ │  バックエンド (方式 A / B から選択)       │
-│  (音声インターフェース)│     │  A) Lambda  — app/alexa/lambda/index.js │
-└─────────────────────┘     │  B) 自サーバー — platform/alexa-server/  │
+│  (音声インターフェース)│     │  A) Lambda  — app/alexa/skill/index.js  │
+└─────────────────────┘     │  B) 自サーバー — app/alexa/skill/server.js│
                              │     Nginx → alexa_server コンテナ :3002  │
                              └──────────────────────┬──────────────────┘
-                                                    │ Bearer token
+                                                    │ Bearer token (Alexa 用)
                                                     ▼
                                        Laravel API (公開 HTTPS 必須)
 ```
@@ -295,13 +311,12 @@ docker_inventory_management/
 │   │   └── src/   app/page.tsx (画面の状態管理) / components/ / lib/ (api.ts, inventory.ts)
 │   ├── mobile/    Expo 58 / React Native 0.88 (TypeScript)
 │   │   └── src/   components/ / api.ts / inventory.ts / styles.ts
-│   └── alexa/     Alexa カスタムスキル (Lambda ハンドラー・インタラクションモデル)
+│   └── alexa/     Alexa カスタムスキル (skill/: Lambda と自サーバー共通のハンドラー・Dockerfile、interaction-model/)
 ├── platform/
 │   ├── docker/                  Dockerfile (php:8.4-fpm)
 │   ├── docker-compose.yml       app / db / phpmyadmin / alexa-server / web
 │   ├── docker-compose.prod.yml  本番構成 (Caddy リバースプロキシ)
 │   ├── proxy/                   Caddyfile
-│   ├── alexa-server/            方式 B 用 Express サーバー
 │   ├── mysql/                   MySQL データ (gitignore)
 │   └── .env.example             Docker 用環境変数の雛形
 └── docs/
@@ -322,7 +337,7 @@ docker_inventory_management/
 | `app` | <http://localhost:8000> | Laravel API（`/api/*`、ヘルスチェック `/up`） |
 | `phpmyadmin` | <http://localhost:8080> | DB 管理 UI |
 | `db` | `localhost:3306` | MySQL 8.0（DB `inventory`）。healthcheck 後に `app` / `phpmyadmin` が起動する |
-| `alexa-server` | 内部 `:3002` | Alexa 方式 B の Express サーバー（任意で起動） |
+| `alexa-server` | 内部 `:3002` | Alexa 方式 B の Express サーバー（任意で起動。`app/alexa/skill/Dockerfile` からビルド） |
 
 ### 9.5 環境変数
 
@@ -335,8 +350,8 @@ docker_inventory_management/
 | `WEB_MODE` | `production` | `production`＝`next build` → `next start` / `dev`＝`next dev`（HMR） |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | ブラウザから API を呼ぶ URL。本番は空（同一オリジン） |
 | `EXPO_PUBLIC_API_BASE_URL` | `http://localhost:8000` | 端末から API を呼ぶ URL。実機では PC の LAN IP |
-| `API_BASE_URL` / `API_TOKEN` | — | Alexa スキルの API 接続先とトークン |
-| `ALEXA_SKILL_ID` | 空（すべての要求を断る） | Alexa 方式 B が受け付けるスキルの ID（[D11](#16-決定事項)） |
+| `API_BASE_URL` / `API_TOKEN` | — | Alexa スキルの API 接続先と、Alexa 用トークン（`php artisan inventory:alexa-token <メール>` で発行。[D13](#16-決定事項)） |
+| `ALEXA_SKILL_ID` | 空（すべての要求を断る） | Alexa スキルが受け付けるスキルの ID。方式 A（Lambda の環境変数）・方式 B とも必須（[D11](#16-決定事項)） |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 空（SSO は無効） | SSO の認証サーバーとクライアント（[10章](#10-認証の実装)） |
 | `PUBLIC_BASE_URL` | — | アプリの公開 URL。認証サーバーに登録するリダイレクト URI は `{PUBLIC_BASE_URL}/api/auth/sso/callback` |
 | `OIDC_REQUIRE_MFA` / `OIDC_DISPLAY_NAME` / `OIDC_MOBILE_REDIRECT_PREFIXES` / `OIDC_LINK_DENY_EMAIL_DOMAINS` / `OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY` | `true` / `SSO` / `inventory://,exp://` / `example.com` / `false` | SSO の細かい設定。`wait-for-db.sh` が `.env` にも書き写す（配信と artisan のコマンドが同じ値を見るように） |
@@ -395,12 +410,18 @@ npx expo start
 |---|---|---|
 | Web | Bearer トークン | `localStorage` |
 | モバイル | Bearer トークン | `expo-secure-store`（Expo の Web 実行時は `localStorage`） |
-| Alexa | Bearer トークン（環境変数 `API_TOKEN`） | Lambda / コンテナの環境変数 |
+| Alexa | Bearer トークン（環境変数 `API_TOKEN`。Alexa 用の、用途を絞ったもの） | Lambda / コンテナの環境変数 |
 
 - `POST /api/login` でランダムなトークンを発行し、平文はこの応答で一度だけ返す。DB（`api_tokens.token`）には SHA-256 ハッシュだけを保存する。
 - `AuthenticateToken` ミドルウェア（`auth.token` エイリアス）が `Authorization: Bearer <token>` を検証する。無い / 無効なら `401 {"message":"Unauthenticated."}`。
 - Sanctum は使わず、依存を追加しない軽量実装とする（[D1](#16-決定事項)）。
-- `POST /api/logout` で現在のトークンを失効させる。トークンに有効期限はない（[Q2](#17-未決事項)）。
+- `POST /api/logout` で現在のトークンを失効させる。ログインで発行するトークンに有効期限はない（[Q2](#17-未決事項)）。
+- **Alexa 用のトークン**（[D13](#16-決定事項)）: API のコンテナで `php artisan inventory:alexa-token <メールアドレス> [--days=365]` を実行して発行する。平文は実行時に一度だけ表示する。
+  - `api_tokens.abilities` に、できる操作（`items:read`・`items:decrement`・`items:increment`）を持つ。`abilities` が null のトークン（ログインで発行するもの）は、今までどおりすべての API を使える。
+  - 用途を絞ったトークンは、ルートに `ability:<操作>` のミドルウェアがあるときだけ通す（`AuthenticateToken` が既定で 403 にし、`EnsureTokenAbility` がその操作を持つかを確かめる）。今 `ability:` が付いているのは `GET /api/items`・`PUT /api/items/{item}/decrement`・`PUT /api/items/{item}/increment` だけ。
+  - `api_tokens.expires_at` を過ぎたトークンは 401。既定の期限は 365 日（`--days=0` で無期限）。
+  - 同じ人の Alexa 用トークンは、発行のたびに作り直す（前のものは使えなくなる）。`--revoke` で取り消すだけにもできる。
+  - `login_method` は `cli`（運用者がサーバーで発行したもの）。パスワードのログインではないので、持ち主が「SSO だけ」にしても使える。
 - **SSO でログイン**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET` がそろったときだけ有効）: 共通の認証サーバー（OpenID Connect）でログインする。仕様は、認証サーバーのリポジトリ（docker_auth_server）の `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。
   - パスワードでログインしたあと、「アカウント」タブで自分の SSO のアカウントを連携した人だけが使える。新規登録はしない。メールアドレスの一致では自動でひも付けない。デモ用（`@example.com`）には連携できない。
   - 既定では、認証サーバーにパスキー（2 段階認証）でログインした人だけを通す（ID トークンの `amr` に `mfa`、`OIDC_REQUIRE_MFA`）。
@@ -477,14 +498,14 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 |---|---|
 | `tenants` | `id`, `name`（unique）。`demo` / `main` をマイグレーションで作成（[D4](#16-決定事項)） |
 | `users` | Laravel 標準 + `tenant_id` + `sso_only`（SSO だけでログインする） |
-| `api_tokens` | `id`, `user_id`（FK → users, cascade）, `name`（nullable）, `token`（SHA-256 ハッシュ, unique）, `last_used_at`, `login_method`（`pwd` / `sso`） |
+| `api_tokens` | `id`, `user_id`（FK → users, cascade）, `name`（nullable。Alexa 用は `alexa`）, `token`（SHA-256 ハッシュ, unique）, `last_used_at`, `login_method`（`pwd` / `sso` / `cli`）, `abilities`（JSON, nullable。null はすべての API）, `expires_at`（nullable） |
 | `user_identities` | SSO の連携。`user_id`, `provider`（sso）, `subject`（認証サーバーの `sub`）, `email`（表示用）, `last_login_at`。`(provider, subject)` と `(user_id, provider)` が unique |
 | `oauth_flows` | SSO の途中の状態。`mode`, `intent_hash` / `state_hash` / `result_hash`（どれもハッシュ）, `client_challenge`, `return_to`, `expires_at`。使ったら消す |
 | `categories` | `id`, `tenant_id`, `name`（`tenant_id` と複合 unique） |
 | `item_groups` | `id`, `tenant_id`, `name`（`tenant_id` と複合 unique） |
 | `storage_locations` | `id`, `tenant_id`, `category_id`（nullable。旧仕様の名残で制約なし）, `description`（自由記述） |
 | `items` | `id`, `tenant_id`, `name`, `category_id`（FK, cascade）, `group_id`（FK, nullOnDelete）, `storage_location_id`（FK, nullOnDelete）, `created_by`（FK → users, nullOnDelete）, `barcode`（nullable、`tenant_id` と複合 unique）, `stock`（int, 既定 0） |
-| `item_histories` | `id`, `tenant_id`, `item_id`（FK, cascade）, `user_id`（FK → users, nullOnDelete — 更新者）, `change`（増減数）, `amount`（nullable, 円）, `expires_at`（date, nullable）, `changed_at` |
+| `item_histories` | `id`, `tenant_id`, `item_id`（FK, cascade）, `user_id`（FK → users, nullOnDelete — 更新者）, `change`（増減数）, `amount`（nullable, 円）, `expires_at`（date, nullable）, `changed_at`, `source`（nullable。Alexa からの増減は `alexa`） |
 
 - リレーション：`Item belongsTo Category / ItemGroup / StorageLocation`、`Item hasMany ItemHistory`、`ItemHistory belongsTo User`、`Category hasMany Item`、`User hasMany ApiToken`、`User belongsTo Tenant`。
 - 在庫を増減する操作（作成時の初期在庫 / `increment` / `decrement` / `scan`）の履歴には、認証中ユーザーの `user_id` を記録する。`GET /api/items/{item}/histories` は `user:id,name` を同梱する（未記録の行は `user: null`）。
@@ -492,7 +513,7 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 
 ## 13. API
 
-ルートは `app/backend/routes/api.php`（`bootstrap/app.php` の `withRouting(api: ...)` で `/api` プレフィックス）。**`POST /api/login` と SSO の公開の経路（`/api/auth/providers`・`/api/auth/sso/*`）以外はすべてトークン認証が必須**で、対象はログインユーザーのテナントのデータに限られる。
+ルートは `app/backend/routes/api.php`（`bootstrap/app.php` の `withRouting(api: ...)` で `/api` プレフィックス）。**`POST /api/login` と SSO の公開の経路（`/api/auth/providers`・`/api/auth/sso/*`）以外はすべてトークン認証が必須**で、対象はログインユーザーのテナントのデータに限られる。Alexa 用のトークンで使えるのは、説明に「Alexa 用トークンで使える」とある経路だけ（ほかは 403。[10章](#10-認証の実装)）。
 
 | Method | Path | 説明 | 主なステータス |
 |---|---|---|---|
@@ -505,18 +526,18 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | DELETE | `/api/item-groups/{itemGroup}` | グループの削除 | 204 |
 | GET / POST | `/api/storage-locations` | 保管場所の一覧 / 作成（`description` 必須） | 200・201 / 422 |
 | DELETE | `/api/storage-locations/{storageLocation}` | 保管場所の削除 | 204 |
-| GET | `/api/items` | 品目一覧（category・group・storageLocation 同梱、名前順、`avg_amount`・`nearest_expires_at` 付き） | 200 |
+| GET | `/api/items` | 品目一覧（category・group・storageLocation 同梱、名前順、`avg_amount`・`nearest_expires_at` 付き）。Alexa 用トークンで使える（`items:read`） | 200 |
 | POST | `/api/items` | 品目作成（`name` / `category_id` / `stock` 必須、`barcode` / `group_id` / `storage_location_id` / `amount` / `expires_at` 任意） | 201 / 422 |
 | POST | `/api/items/scan` | バーコードで検索し +1（[11.1節](#111-バーコードスキャンの応答契約)） | 200 / 404 / 422 |
-| PUT | `/api/items/{item}/increment` | 在庫 +1 + 履歴（`amount` / `expires_at` 任意） | 200 / 404 / 422 |
-| PUT | `/api/items/{item}/decrement` | 在庫 −1 + 履歴。在庫 0 なら拒否 | 200 / 404 / 409 |
+| PUT | `/api/items/{item}/increment` | 在庫 +`quantity`（任意、1〜99、既定 1）+ 履歴（`amount` / `expires_at` 任意）。Alexa 用トークンで使える（`items:increment`） | 200 / 404 / 422 |
+| PUT | `/api/items/{item}/decrement` | 在庫 −`quantity`（任意、1〜99、既定 1）+ 履歴。在庫が足りなければ拒否（確認と減算を 1 つの UPDATE で行う）。Alexa 用トークンで使える（`items:decrement`） | 200 / 404 / 409 / 422 |
 | PUT | `/api/items/{item}/name` | 名前の変更 | 200 / 404 / 422 |
 | PUT | `/api/items/{item}/barcode` | バーコードの設定 / 解除（nullable、テナント内 unique） | 200 / 404 / 422 |
 | PUT | `/api/items/{item}/category` | カテゴリの変更 | 200 / 404 / 422 |
 | PUT | `/api/items/{item}/group` | グループの変更（nullable） | 200 / 404 / 422 |
 | PUT | `/api/items/{item}/storage-location` | 保管場所の変更（nullable） | 200 / 404 / 422 |
 | DELETE | `/api/items/{item}` | 品目の削除（履歴も削除） | 204 / 404 |
-| GET | `/api/items/{item}/histories` | 履歴（新しい順、`user:id,name` 同梱） | 200 / 404 |
+| GET | `/api/items/{item}/histories` | 履歴（新しい順、`user:id,name` 同梱、`source` 付き） | 200 / 404 |
 | GET | `/api/analytics/timeseries` | 時系列の集計（[11.5節](#115-分析の集計)） | 200 |
 | GET | `/up` | Laravel 標準のヘルスチェック（認証不要） | 200 |
 | GET | `/api/auth/providers` | SSO が使えるか（`{sso, sso_name}`。公開） | 200 |
@@ -536,16 +557,17 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | 可用性 | 単一ホスト上の Docker Compose。冗長化はしない（将来はマネージド DB への切り替えを想定。[docs/runbooks/operation.md §8.8](docs/runbooks/operation.md)） |
 | データの永続化 | 開発は `platform/mysql/` の bind mount、本番は名前付きボリューム（`db_data` / `laravel_storage` / `caddy_data` / `caddy_config`） |
 | 起動順 | `db` の healthcheck（`mysqladmin ping`）を待って `app` / `phpmyadmin` を起動 |
-| テスト | PHPUnit のセットアップのみ。アプリのテストは未実装（[Q3](#17-未決事項)）。モバイルは `npx tsc --noEmit` で型チェック |
+| テスト | API は PHPUnit の Feature テスト（テナントの分離・SSO・Alexa 用トークン）。Alexa スキルは `node --test`。CI は未導入（[Q3](#17-未決事項)）。モバイルは `npx tsc --noEmit` で型チェック |
 | モバイルのカメラ | `expo-camera` の `CameraView`。iOS の `NSCameraUsageDescription` は `app.json` のプラグイン設定で注入。シミュレータでは読み取れないため実機で確認する |
 
 ### 14.1 セキュリティ
 
 - `platform/docker-compose.yml` と `platform/.env.example` の DB パスワードは**開発専用の既定値**。本番では必ず差し替える。
-- API は `/api/login` 以外すべてトークン認証が必須で、データはテナント単位で分離する。ただし認可ロール・画面からのユーザー管理・トークンの有効期限は未実装（[Q1](#17-未決事項)・[Q2](#17-未決事項)）。
+- API は `/api/login` 以外すべてトークン認証が必須で、データはテナント単位で分離する。ただし認可ロール・画面からのユーザー管理・ログインで発行するトークンの有効期限は未実装（[Q1](#17-未決事項)・[Q2](#17-未決事項)）。
+- Alexa 用のトークンは、サーバーや Lambda の環境変数に長く置くため、品目の参照と増減だけに絞り、期限を付ける（[D13](#16-決定事項)）。
 - デモアカウントのパスワードは公開前提の値。実運用のユーザーには使わない。
 - 本番は Caddy で TLS を終端し、アプリ層は compose の内部ネットワークに閉じる。phpMyAdmin はサブドメイン + Basic 認証でのみ公開する。
-- Alexa 方式 B は `ask-sdk-express-adapter` がリクエストの署名とタイムスタンプを検証し、`ALEXA_SKILL_ID` でスキル ID も確かめる。未設定ならすべての要求を断る（[D11](#16-決定事項)）。方式 A は Lambda のトリガーの `--event-source-token` でスキル ID を絞る。
+- Alexa 方式 B は `ask-sdk-express-adapter` がリクエストの署名とタイムスタンプを検証する。スキル ID は方式 A・B とも `ALEXA_SKILL_ID` で確かめ（`withSkillId`）、未設定ならすべての要求を断る（[D11](#16-決定事項)）。方式 A は、あわせて Lambda のトリガーでもスキル ID を絞る。方式 B のコンテナは、lockfile どおりに依存を入れたイメージを、root ではないユーザーで動かす。
 - テナントの分離は、モデルのグローバルスコープ（`BelongsToTenant`）がログイン中のユーザーの `tenant_id` で絞る形で行う。そのため認証（`AuthenticateToken`）は、ルートのモデルの解決（`SubstituteBindings`）より先に動かす（[D10](#16-決定事項)）。
 
 ## 15. 本番デプロイ構成
@@ -610,20 +632,22 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 | D3 | Web とモバイルの表示ロジックは `inventory.ts` に集約し、両ファイルを同一内容に保つ（[11.4節](#114-web-とモバイルの共通ロジック)） |
 | D4 | テナント（`demo` / `main`）は構造上必須のマスタデータなので、シーダーではなくマイグレーションで作る。デモアカウントは `demo`、それ以外は `main` に属する |
 | D5 | モバイルは Docker に含めず、開発時はホストの Expo CLI、配布は EAS Build とする |
-| D6 | Alexa スキルのバックエンドは、Lambda（方式 A）と自サーバーの Express（方式 B）から選べるようにし、ハンドラーのロジックは共通にする |
+| D6 | Alexa スキルのバックエンドは、Lambda（方式 A）と自サーバーの Express（方式 B）から選べるようにし、ハンドラーのロジックは共通にする。ハンドラーは `app/alexa/skill/lib/` に 1 つだけ置き、入口（`index.js` / `server.js`）だけを分ける |
 | D7 | 呼称は「ストクル」とし、画面のアプリ名と Alexa の呼び出し名に使う。リポジトリ名・パッケージ名・Docker サービス名などの識別子は変更しない |
 | D8 | 補充金額と期限は、在庫 0 からの補充と物品追加のときだけ尋ねる。在庫 > 0 の +1 は即時に反映する（[11.2節](#112-補充金額と期限)） |
 | D9 | 保管場所はカテゴリではなく品目に紐づける（`items.storage_location_id`）。`storage_locations.category_id` は互換のため nullable で残す |
 | D10 | `AuthenticateToken` は Laravel の印のインターフェース `AuthenticatesRequests` を実装し、ミドルウェアの優先度の一覧でルートのモデルの解決（`SubstituteBindings`）より先に動かす。テナントのグローバルスコープは、ログイン中のユーザーがいることを前提にしているため。`tests/Feature/TenantIsolationTest.php` で守る |
-| D11 | Alexa 方式 B は、環境変数 `ALEXA_SKILL_ID` のスキルからの要求だけを受け付ける（`withSkillId`）。署名の検証は「Amazon から来た」ことしか示さないため。未設定なら起動時に警告を出し、すべての要求を 503 で断る |
+| D11 | Alexa スキルは、環境変数 `ALEXA_SKILL_ID` のスキルからの要求だけを受け付ける（`withSkillId`。方式 A・B とも）。署名の検証は「Amazon から来た」ことしか示さないため。未設定なら、方式 B は起動時に警告を出してすべての要求を 503 で断り、方式 A はすべての要求をエラーにする |
 | D12 | 開発・デモの API は、FrankenPHP の `php-server`（ワーカーではない通常のモード）で配信する。`php artisan serve` は開発用の 1 プロセスのサーバーで、遅いリクエストがあると、ほかのリクエストが待たされるため。ポートは今までどおり 8000。本番用の構成（`Dockerfile.prod`）は PHP-FPM のまま |
+| D13 | Alexa は、ログインで発行するトークンではなく、Alexa 用のトークン（`php artisan inventory:alexa-token`）を使う。できる操作をトークンの `abilities` に持たせ（品目の参照・払い出し・取り消しのための増加）、ルートに `ability:` の指定がない API には既定で通さない。期限を付け（既定 365 日）、発行のたびに前のものを無効にする。履歴には `source = alexa` を残し、画面で「（Alexa）」と示す |
+| D14 | Alexa での払い出しは、間違った品目や個数で減らさないことを優先する。完全一致でない品名と 10 個以上の払い出しは「はい / いいえ」で確かめ、候補が複数あれば聞き直す。取り消しは、開いているあいだの直前の 1 回だけを、在庫を戻す履歴を足して行う（履歴は消さない） |
 
 ## 17. 未決事項
 
 | # | 論点 | 選択肢の例 |
 |---|---|---|
 | Q1 | 認可ロールと画面からのユーザー管理 | 管理者 / 一般のロールを設け、管理者だけがマスタ削除・ユーザー追加をできるようにする／現状どおり全員同権限 |
-| Q2 | トークンの有効期限・ローテーション | 有効期限と再発行を設ける／現状どおり無期限 |
+| Q2 | ログインで発行するトークンの有効期限・ローテーション（Alexa 用は [D13](#16-決定事項) で期限つき） | 有効期限と再発行を設ける／現状どおり無期限 |
 | Q3 | 自動テストと CI | PHPUnit の Feature テストと GitHub Actions を導入する／手動確認のみ（現状） |
 | Q4 | エラーレスポンスの形式の統一 | `{message}` に統一する（在庫不足の 409 は現在 `{error}`）／現状のまま |
 | Q5 | マイグレーション番号の整理 | fresh を許容できる時点でファイル名を連番に揃える（旧 `000002` / `000003` の削除で飛び番がある）／そのまま |
@@ -636,7 +660,7 @@ Web / モバイルのスキャン画面はこの API を使わない。入庫か
 |---|---|
 | [docs/README.md](docs/README.md) | docs フォルダの案内 |
 | [docs/runbooks/operation.md](docs/runbooks/operation.md) | 起動・運用手順、本番デプロイ、トラブルシュート |
-| [docs/runbooks/alexa-setup.md](docs/runbooks/alexa-setup.md) | Alexa スキルのセットアップ手順（Lambda / 自サーバー） |
+| [docs/runbooks/alexa-setup.md](docs/runbooks/alexa-setup.md) | Alexa スキルのセットアップ手順（Alexa 用トークンの発行、Lambda / 自サーバー） |
 
 ## License
 

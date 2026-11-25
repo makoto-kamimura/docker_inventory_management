@@ -31,8 +31,14 @@ class AuthenticateToken implements AuthenticatesRequests
 
         $token = ApiToken::where('token', ApiToken::hash($plain))->first();
 
-        if ($token === null) {
+        if ($token === null || $token->isExpired()) {
             return $this->unauthenticated();
+        }
+
+        // 用途を絞ったトークン (Alexa など) は、ルートに ability: の指定があるときだけ通す (既定で断る。README の D13)。
+        // 指定された操作をトークンが持つかは EnsureTokenAbility が確かめる
+        if ($token->isScoped() && ! self::routeDeclaresAbility($request)) {
+            return response()->json(['message' => 'This token cannot use this API.'], 403);
         }
 
         // 「SSO だけ」にした人の、パスワードで入ったトークンは使えない (オンにした時点で、ほかの端末のログインも切れる)
@@ -45,7 +51,7 @@ class AuthenticateToken implements AuthenticatesRequests
 
         // 後続のコントローラ/ログアウトで現在のトークンを参照できるよう保持
         $request->attributes->set('api_token', $token);
-        $request->attributes->set('login_method', $method === 'sso' ? 'sso' : 'pwd');
+        $request->attributes->set('login_method', in_array($method, ['sso', 'cli'], true) ? $method : 'pwd');
 
         Auth::setUser($token->user);
         $request->setUserResolver(fn () => $token->user);
@@ -64,7 +70,19 @@ class AuthenticateToken implements AuthenticatesRequests
         }
         $enforced = \App\Services\Sso\Oidc::enabled() && ! config('sso.allow_password_for_sso_only');
 
-        return ! ($enforced && $user->sso_only && $method !== 'sso');
+        // cli は運用者がサーバーで発行したトークン (Alexa 用など)。パスワードのログインではないので止めない
+        return ! ($enforced && $user->sso_only && $method === 'pwd');
+    }
+
+    private static function routeDeclaresAbility(Request $request): bool
+    {
+        foreach ($request->route()?->gatherMiddleware() ?? [] as $middleware) {
+            if (is_string($middleware) && str_starts_with($middleware, 'ability:')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function unauthenticated(): Response

@@ -54,14 +54,31 @@ class ItemController extends Controller
         return $item->load(['category', 'group', 'storageLocation']);
     }
 
-    public function decrement(Item $item)
+    /** 一度に増減できる個数の上限 (言い間違い・聞き間違いで大きく動かさないため) */
+    private const MAX_QUANTITY = 99;
+
+    public function decrement(Item $item, Request $request)
     {
-        if ($item->stock <= 0) {
+        // quantity は省略時 1 (Web / モバイルの −1)。Alexa の「3 個払い出して」で使う
+        $data = $request->validate([
+            'quantity' => 'nullable|integer|min:1|max:'.self::MAX_QUANTITY,
+        ]);
+        $quantity = $data['quantity'] ?? 1;
+
+        // 在庫の確認と減算を 1 つの UPDATE で行い、同時の払い出しで在庫が負にならないようにする
+        $updated = Item::whereKey($item->id)
+            ->where('stock', '>=', $quantity)
+            ->decrement('stock', $quantity);
+
+        if ($updated === 0) {
             return response()->json(['error' => '在庫がありません'], 409);
         }
 
-        $item->decrement('stock');
-        $item->histories()->create(['change' => -1, 'user_id' => auth()->id()]);
+        $item->histories()->create([
+            'change' => -$quantity,
+            'user_id' => auth()->id(),
+            'source' => $this->historySource($request),
+        ]);
 
         return $item->fresh('category');
     }
@@ -69,20 +86,30 @@ class ItemController extends Controller
     public function increment(Item $item, Request $request)
     {
         // 在庫0からの補充時のみフロントが amount / expires_at を送る (任意)。
+        // quantity は省略時 1。Alexa の「取り消して」で、払い出した個数を戻すのに使う
         $data = $request->validate([
             'amount' => 'nullable|integer|min:0',
             'expires_at' => 'nullable|date',
+            'quantity' => 'nullable|integer|min:1|max:'.self::MAX_QUANTITY,
         ]);
+        $quantity = $data['quantity'] ?? 1;
 
-        $item->increment('stock');
+        $item->increment('stock', $quantity);
         $item->histories()->create([
-            'change' => 1,
+            'change' => $quantity,
             'amount' => $data['amount'] ?? null,
             'expires_at' => $data['expires_at'] ?? null,
             'user_id' => auth()->id(),
+            'source' => $this->historySource($request),
         ]);
 
         return $item->fresh('category');
+    }
+
+    /** 操作の経路 (Alexa 用のトークンなら alexa)。履歴に残す */
+    private function historySource(Request $request): ?string
+    {
+        return $request->attributes->get('api_token')?->historySource();
     }
 
     public function histories(Item $item)

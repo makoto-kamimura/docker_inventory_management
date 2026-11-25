@@ -40,11 +40,12 @@ Route::middleware('auth.token')->group(function () {
     Route::post('/item-groups', [ItemGroupController::class, 'store']);
     Route::delete('/item-groups/{itemGroup}', [ItemGroupController::class, 'destroy']);
 
-    Route::get('/items', [ItemController::class, 'index']);
+    // ability: を付けたルートだけ、用途を絞ったトークン (Alexa 用) でも使える (README の D13)
+    Route::get('/items', [ItemController::class, 'index'])->middleware('ability:items:read');
     Route::post('/items', [ItemController::class, 'store']);
     Route::post('/items/scan', [ItemController::class, 'scan']);
-    Route::put('/items/{item}/decrement', [ItemController::class, 'decrement']);
-    Route::put('/items/{item}/increment', [ItemController::class, 'increment']);
+    Route::put('/items/{item}/decrement', [ItemController::class, 'decrement'])->middleware('ability:items:decrement');
+    Route::put('/items/{item}/increment', [ItemController::class, 'increment'])->middleware('ability:items:increment');
     Route::put('/items/{item}/name', [ItemController::class, 'updateName']);
     Route::put('/items/{item}/barcode', [ItemController::class, 'updateBarcode']);
     Route::put('/items/{item}/category', [ItemController::class, 'updateCategory']);

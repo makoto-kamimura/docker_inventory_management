@@ -235,7 +235,10 @@ export function HistoryModal({ item, onClose }: { item: Item; onClose: () => voi
               </View>
               <View style={styles.historyMeta}>
                 <Text style={styles.muted}>{new Date(h.changed_at).toLocaleString("ja-JP")}</Text>
-                <Text style={styles.historyUser}>{h.user?.name ?? "不明"}</Text>
+                <Text style={styles.historyUser}>
+                  {h.user?.name ?? "不明"}
+                  {h.source === "alexa" && "（Alexa）"}
+                </Text>
               </View>
             </View>
           )}

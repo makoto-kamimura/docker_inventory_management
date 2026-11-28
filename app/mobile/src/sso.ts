@@ -1,4 +1,4 @@
-// SSO (共通の認証サーバー) でのログイン / 連携。仕様は docker_auth_server の docs/runbooks/app-integration.md。
+// SSO (共通の認証サーバー) でのログイン / 連携。仕様は認証サーバーのリポジトリの docs/runbooks/app-integration.md。
 // アプリ内のブラウザで API の開始 URL を開き、認証サーバーでログインしたあと、ディープリンクで戻ってくる
 // (Expo Go では exp://…/--/auth/sso、ビルド版では inventory://auth/sso)。
 // 戻り URL の結果コードは、ここで作った code_verifier (PKCE) がないと交換できない。

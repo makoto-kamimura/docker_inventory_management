@@ -4,7 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-// SSO (OpenID Connect)。共通の仕様は docker_auth_server の docs/runbooks/app-integration.md
+// SSO (OpenID Connect)。共通の仕様は認証サーバーのリポジトリの docs/runbooks/app-integration.md
 return new class extends Migration {
     public function up(): void
     {

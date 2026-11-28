@@ -422,7 +422,7 @@ npx expo start
   - `api_tokens.expires_at` を過ぎたトークンは 401。既定の期限は 365 日（`--days=0` で無期限）。
   - 同じ人の Alexa 用トークンは、発行のたびに作り直す（前のものは使えなくなる）。`--revoke` で取り消すだけにもできる。
   - `login_method` は `cli`（運用者がサーバーで発行したもの）。パスワードのログインではないので、持ち主が「SSO だけ」にしても使える。
-- **SSO でログイン**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET` がそろったときだけ有効）: 共通の認証サーバー（OpenID Connect）でログインする。仕様は、認証サーバーのリポジトリ（docker_auth_server）の `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。
+- **SSO でログイン**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET` がそろったときだけ有効）: 共通の認証サーバー（OpenID Connect）でログインする。仕様は、認証サーバーのリポジトリの `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。
   - パスワードでログインしたあと、「アカウント」タブで自分の SSO のアカウントを連携した人だけが使える。新規登録はしない。メールアドレスの一致では自動でひも付けない。デモ用（`@example.com`）には連携できない。
   - 既定では、認証サーバーにパスキー（2 段階認証）でログインした人だけを通す（ID トークンの `amr` に `mfa`、`OIDC_REQUIRE_MFA`）。
   - ID トークンは、認証サーバーの公開鍵（`/.well-known/openid-configuration` の `jwks_uri`）で署名を確かめ、`iss`・`aud`・`exp`・`nonce` も確かめる（`firebase/php-jwt`、`App\Services\Sso\Oidc`）。

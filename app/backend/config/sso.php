@@ -1,6 +1,6 @@
 <?php
 
-// SSO (OpenID Connect)。共通の仕様は認証サーバーのリポジトリ (docker_auth_server) の
+// SSO (OpenID Connect)。共通の仕様は認証サーバーのリポジトリの
 // docs/runbooks/app-integration.md。発行元・クライアント ID・秘密がそろったときだけ有効。
 
 $list = fn (string $name, string $default) => array_values(array_filter(array_map(

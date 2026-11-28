@@ -1,4 +1,4 @@
-// SSO (共通の認証サーバー) でのログイン / 連携。仕様は docker_auth_server の docs/runbooks/app-integration.md。
+// SSO (共通の認証サーバー) でのログイン / 連携。仕様は認証サーバーのリポジトリの docs/runbooks/app-integration.md。
 // この Web は画面がブラウザで動くので、code_verifier (PKCE) は sessionStorage に持ち、交換もブラウザから行う。
 // 戻ってきた結果コードは、このタブの sessionStorage にある code_verifier がないと交換できない
 // (他人に開始 URL や戻り URL を踏ませても成立しない)。
